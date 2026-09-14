@@ -20,13 +20,26 @@ try {
   const websocketOrigin = origin.replace(/^http/, 'ws')
   const socket = new WebSocket(`${websocketOrigin}/ws?thread_id=${encodeURIComponent(thread.id)}`)
   await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('WebSocket ready event timed out')), 15_000)
+    const timeout = setTimeout(() => reject(new Error('LLM completion timed out')), 120_000)
     socket.addEventListener('message', (event) => {
       const payload = JSON.parse(event.data)
       if (payload.type === 'ready') {
+        socket.send(JSON.stringify({ type: 'user_message', content: 'Reply with the single word OK.' }))
+      }
+      if (
+        payload.type === 'message' &&
+        payload.message?.role === 'assistant' &&
+        payload.message.streaming === false &&
+        payload.message.content?.trim()
+      ) {
         clearTimeout(timeout)
         socket.close()
-        resolve()
+        resolve(payload.message.content)
+      }
+      if (payload.type === 'error') {
+        clearTimeout(timeout)
+        socket.close()
+        reject(new Error(`LLM proxy failed: ${payload.error}`))
       }
     })
     socket.addEventListener('error', () => {
@@ -34,7 +47,7 @@ try {
       reject(new Error('WebSocket connection failed'))
     })
   })
-  console.log('Public WebSocket smoke test passed.')
+  console.log('Public WebSocket and LLM proxy smoke test passed.')
 } finally {
   await fetch(`${origin}/api/threads/${encodeURIComponent(thread.id)}`, { method: 'DELETE' })
 }

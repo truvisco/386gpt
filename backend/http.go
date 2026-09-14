@@ -84,7 +84,11 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) runtime(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"provider": s.llm.provider, "model": s.llm.model})
+	writeJSON(w, http.StatusOK, map[string]string{
+		"provider": s.llm.provider,
+		"model":    s.llm.model,
+		"upstream": s.llm.baseURL,
+	})
 }
 
 func (s *Server) listThreads(w http.ResponseWriter, _ *http.Request) {

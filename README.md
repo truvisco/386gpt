@@ -41,7 +41,7 @@ Frontend environment variables:
 
 - `VITE_API_URL`: backend HTTP origin, default `http://localhost:8080`
 
-The backend reads Hermes's active custom provider, model, base URL, API mode, and API key directly from the YAML file. Credentials remain outside this repository. The configured provider must expose an OpenAI-compatible streaming Chat Completions endpoint.
+The backend reads Hermes's active custom provider, model, base URL, API mode, and API key directly from the YAML file. Credentials remain outside this repository. The configured provider must expose an OpenAI-compatible streaming Chat Completions endpoint. Production uses `https://freellmapi.portnumber53.com/v1`, which follows the monitored `brain.portnumber53.com` address and reaches the FreeLLM service through the existing `crash` reverse proxy.
 
 ## Production
 
