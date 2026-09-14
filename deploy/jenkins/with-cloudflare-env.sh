@@ -29,6 +29,10 @@ if [ -z "$endpoints" ] || [ -z "$authentication" ]; then
     exit 1
 fi
 
+# Use explicit flags below and do not pass the etcd login to the wrapped
+# Cloudflare command.
+unset ETCDCTL_ENDPOINTS ETCDCTL_USER ETCD_ENDPOINTS ETCD_USER ETCD_PASSWORD
+
 get_value() {
     etcdctl --command-timeout=10s \
         --endpoints="$endpoints" \

@@ -30,6 +30,11 @@ if [ -z "$endpoints" ] || [ -z "$authentication" ]; then
     exit 1
 fi
 
+# etcdctl rejects an exported ETCDCTL_* value when the matching explicit flag
+# is also present. Keep the captured values local and remove credentials from
+# the environment inherited by child processes.
+unset ETCDCTL_ENDPOINTS ETCDCTL_USER ETCD_ENDPOINTS ETCD_USER ETCD_PASSWORD
+
 umask 077
 mkdir -p "$destination"
 config_file=$destination/hermes.yaml
