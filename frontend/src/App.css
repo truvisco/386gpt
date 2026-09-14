@@ -41,7 +41,11 @@ button { border: 0; }
 .thread-item:hover .delete-thread, .thread-item:focus .delete-thread { display: grid; }
 .delete-thread:hover { color: var(--red); }
 .empty-history { padding: 24px 12px; color: #555; font-size: 12px !important; line-height: 1.7; text-align: center; }
-.sidebar-footer { display: flex; justify-content: space-between; padding: 13px 18px; color: #666; font-size: 10px !important; letter-spacing: .8px; border-top: 1px solid var(--line); }
+.sidebar-footer { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; padding: 12px 14px; color: #666; font-size: 10px !important; letter-spacing: .8px; border-top: 1px solid var(--line); }
+.turbo-button { padding: 7px 8px; color: #777; background: #101010; border: 1px solid #3a3a3a; font-size: 10px !important; letter-spacing: .8px; white-space: nowrap; }
+.turbo-button:hover { color: var(--cyan); border-color: var(--cyan-dim); }
+.turbo-button.active { color: var(--black); background: var(--yellow); border-color: var(--yellow); box-shadow: 0 0 9px rgba(255,255,85,.25) !important; }
+.sidebar-status { line-height: 1.7; text-align: right; }
 .status-dot { display: inline-block; width: 7px; height: 7px; margin-right: 4px; background: #555; }
 .status-dot.online { background: #55ff55; box-shadow: 0 0 8px rgba(85,255,85,.65) !important; }
 
@@ -95,6 +99,7 @@ button { border: 0; }
 .send-button:hover:not(:disabled) { background: #fff; }
 .send-button:disabled { color: #555; background: #222; cursor: not-allowed; }
 .composer-meta { display: flex; justify-content: space-between; width: min(850px, 100%); margin: 8px auto 0; color: #4f4f4f; font-size: 9px !important; letter-spacing: .7px; }
+.agent-activity { color: var(--cyan); }
 .sidebar-scrim { display: none; }
 
 @keyframes blink { 0%, 52% { opacity: 1; } 53%, 100% { opacity: 0; } }

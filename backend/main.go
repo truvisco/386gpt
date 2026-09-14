@@ -20,7 +20,7 @@ func main() {
 		os.Exit(1)
 	}
 	hermesPath = envOr("HERMES_CONFIG", hermesPath)
-	llm, err := loadHermesLLM(hermesPath)
+	llm, err := loadHermesAgent(hermesPath)
 	if err != nil {
 		slog.Error("load Hermes settings", "error", err)
 		os.Exit(1)
@@ -43,7 +43,7 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 	go func() {
-		slog.Info("386GPT backend online", "address", address, "database", databasePath, "provider", llm.provider, "model", llm.model)
+		slog.Info("386GPT backend online", "address", address, "database", databasePath, "upstream", llm.baseURL)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("serve", "error", err)
 			os.Exit(1)

@@ -42,13 +42,13 @@ config_file=$destination/hermes.yaml
 etcdctl --command-timeout=10s \
     --endpoints="$endpoints" \
     --user="$authentication" \
-    get "$prefix/hermes-config" \
+    get "$prefix/hermes-agent-config" \
     --print-value-only > "$config_file"
 
 if [ ! -s "$config_file" ]; then
-    echo "missing required etcd key: $prefix/hermes-config" >&2
+    echo "missing required etcd key: $prefix/hermes-agent-config" >&2
     exit 1
 fi
 
 chmod 600 "$config_file"
-echo "Rendered Hermes production configuration from $prefix (value hidden)."
+echo "Rendered Hermes Agent production configuration from $prefix (value hidden)."

@@ -19,7 +19,7 @@ const { thread } = await response.json()
 try {
   const websocketOrigin = origin.replace(/^http/, 'ws')
   const socket = new WebSocket(`${websocketOrigin}/ws?thread_id=${encodeURIComponent(thread.id)}`)
-  await new Promise((resolve, reject) => {
+  const assistantContent = await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('LLM completion timed out')), 120_000)
     socket.addEventListener('message', (event) => {
       const payload = JSON.parse(event.data)
@@ -34,7 +34,7 @@ try {
       ) {
         clearTimeout(timeout)
         socket.close()
-        resolve(payload.message.content)
+        resolve(payload.message.content.trim())
       }
       if (payload.type === 'error') {
         clearTimeout(timeout)
@@ -47,6 +47,9 @@ try {
       reject(new Error('WebSocket connection failed'))
     })
   })
+  if (assistantContent.toUpperCase() !== 'OK') {
+    throw new Error(`unexpected LLM response: ${assistantContent}`)
+  }
   console.log('Public WebSocket and LLM proxy smoke test passed.')
 } finally {
   await fetch(`${origin}/api/threads/${encodeURIComponent(thread.id)}`, { method: 'DELETE' })

@@ -16,50 +16,37 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const hermesSystemPrompt = "You are chatting with the user through 386GPT, a persistent personal chat surface. Behave as you would in a direct Telegram conversation: be conversational, use Hermes tools, skills, and memory when useful, and return a clear final response."
+
 type hermesConfig struct {
-	Model struct {
-		Default  string `yaml:"default"`
-		Provider string `yaml:"provider"`
-	} `yaml:"model"`
-	CustomProviders []struct {
-		Name    string `yaml:"name"`
-		BaseURL string `yaml:"base_url"`
-		APIKey  string `yaml:"api_key"`
-		APIMode string `yaml:"api_mode"`
-	} `yaml:"custom_providers"`
+	Agent struct {
+		BaseURL    string `yaml:"base_url"`
+		APIKey     string `yaml:"api_key"`
+		SessionKey string `yaml:"session_key"`
+	} `yaml:"agent"`
 }
 
-type LLMClient struct {
-	provider   string
-	model      string
+type HermesActivity struct {
+	State  string `json:"state"`
+	Tool   string `json:"tool,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
+type HermesClient struct {
 	baseURL    string
 	apiKey     string
+	sessionKey string
 	httpClient *http.Client
 }
 
-type completionRequest struct {
-	Model    string       `json:"model"`
-	Messages []llmMessage `json:"messages"`
-	Stream   bool         `json:"stream"`
+type hermesSessionResponse struct {
+	Session struct {
+		ID string `json:"id"`
+	} `json:"session"`
 }
 
-type llmMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type completionResponse struct {
-	Choices []struct {
-		Delta struct {
-			Content string `json:"content"`
-		} `json:"delta"`
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-	} `json:"choices"`
-	Error *struct {
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
+type hermesErrorResponse struct {
+	Error any `json:"error"`
 }
 
 func defaultHermesConfigPath() (string, error) {
@@ -67,117 +54,198 @@ func defaultHermesConfigPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".hermes", "config.yaml"), nil
+	return filepath.Join(home, ".hermes", "386gpt.yaml"), nil
 }
 
-func loadHermesLLM(path string) (*LLMClient, error) {
+func loadHermesAgent(path string) (*HermesClient, error) {
 	contents, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read Hermes config: %w", err)
+		return nil, fmt.Errorf("read Hermes agent config: %w", err)
 	}
 	var config hermesConfig
 	if err := yaml.Unmarshal(contents, &config); err != nil {
-		return nil, fmt.Errorf("parse Hermes config: %w", err)
+		return nil, fmt.Errorf("parse Hermes agent config: %w", err)
 	}
-	if config.Model.Provider == "" || config.Model.Default == "" {
-		return nil, errors.New("Hermes config must define model.provider and model.default")
+	if strings.TrimSpace(config.Agent.BaseURL) == "" {
+		return nil, errors.New("Hermes agent config must define agent.base_url")
 	}
-	for _, provider := range config.CustomProviders {
-		if provider.Name != config.Model.Provider {
-			continue
-		}
-		if provider.APIMode != "" && provider.APIMode != "chat_completions" {
-			return nil, fmt.Errorf("Hermes provider %q uses unsupported api_mode %q", provider.Name, provider.APIMode)
-		}
-		if provider.BaseURL == "" {
-			return nil, fmt.Errorf("Hermes provider %q has no base_url", provider.Name)
-		}
-		return &LLMClient{
-			provider:   provider.Name,
-			model:      config.Model.Default,
-			baseURL:    strings.TrimRight(provider.BaseURL, "/"),
-			apiKey:     provider.APIKey,
-			httpClient: &http.Client{},
-		}, nil
+	if strings.TrimSpace(config.Agent.APIKey) == "" {
+		return nil, errors.New("Hermes agent config must define agent.api_key")
 	}
-	return nil, fmt.Errorf("Hermes provider %q is not present in custom_providers", config.Model.Provider)
+	if strings.TrimSpace(config.Agent.SessionKey) == "" {
+		return nil, errors.New("Hermes agent config must define agent.session_key")
+	}
+	return &HermesClient{
+		baseURL:    strings.TrimRight(config.Agent.BaseURL, "/"),
+		apiKey:     config.Agent.APIKey,
+		sessionKey: config.Agent.SessionKey,
+		httpClient: &http.Client{},
+	}, nil
 }
 
-func (c *LLMClient) Stream(ctx context.Context, history []Message, onChunk func(string)) error {
-	messages := make([]llmMessage, 0, len(history)+1)
-	messages = append(messages, llmMessage{
-		Role:    "system",
-		Content: "You are 386GPT, a capable, concise AI assistant. Use plain text that reads clearly in a DOS-style terminal interface.",
+func hermesSessionID(threadID string) string { return "386gpt-" + threadID }
+
+func (c *HermesClient) newRequest(ctx context.Context, method, path string, body any) (*http.Request, error) {
+	var reader io.Reader
+	if body != nil {
+		payload, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		reader = bytes.NewReader(payload)
+	}
+	request, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+c.apiKey)
+	request.Header.Set("X-Hermes-Session-Key", c.sessionKey)
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	return request, nil
+}
+
+func hermesError(response *http.Response) error {
+	detail, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+	var payload hermesErrorResponse
+	if json.Unmarshal(detail, &payload) == nil && payload.Error != nil {
+		switch value := payload.Error.(type) {
+		case string:
+			return fmt.Errorf("Hermes Agent returned %s: %s", response.Status, value)
+		case map[string]any:
+			if message, ok := value["message"].(string); ok {
+				return fmt.Errorf("Hermes Agent returned %s: %s", response.Status, message)
+			}
+		}
+	}
+	return fmt.Errorf("Hermes Agent returned %s: %s", response.Status, strings.TrimSpace(string(detail)))
+}
+
+func (c *HermesClient) ensureSession(ctx context.Context, threadID string) error {
+	request, err := c.newRequest(ctx, http.MethodPost, "/api/sessions", map[string]any{
+		"id":            hermesSessionID(threadID),
+		"source":        "api_server",
+		"system_prompt": hermesSystemPrompt,
 	})
-	for _, message := range history {
-		messages = append(messages, llmMessage{Role: message.Role, Content: message.Content})
-	}
-	body, err := json.Marshal(completionRequest{Model: c.model, Messages: messages, Stream: true})
 	if err != nil {
 		return err
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Accept", "text/event-stream")
-	if c.apiKey != "" {
-		request.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 	response, err := c.httpClient.Do(request)
 	if err != nil {
-		return fmt.Errorf("contact %s: %w", c.provider, err)
+		return fmt.Errorf("contact Hermes Agent: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusConflict {
+		return nil
+	}
+	if response.StatusCode != http.StatusCreated {
+		return hermesError(response)
+	}
+	var created hermesSessionResponse
+	if err := json.NewDecoder(response.Body).Decode(&created); err != nil {
+		return fmt.Errorf("decode Hermes session: %w", err)
+	}
+	if created.Session.ID == "" {
+		return errors.New("Hermes Agent created a session without an ID")
+	}
+	return nil
+}
+
+func (c *HermesClient) Stream(ctx context.Context, threadID, input string, onChunk func(string), onActivity func(HermesActivity)) (string, error) {
+	if err := c.ensureSession(ctx, threadID); err != nil {
+		return "", err
+	}
+	request, err := c.newRequest(ctx, http.MethodPost, "/api/sessions/"+hermesSessionID(threadID)+"/chat/stream", map[string]string{
+		"message": input,
+	})
+	if err != nil {
+		return "", err
+	}
+	request.Header.Set("Accept", "text/event-stream")
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("contact Hermes Agent: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		detail, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return fmt.Errorf("%s returned %s: %s", c.provider, response.Status, strings.TrimSpace(string(detail)))
+		return "", hermesError(response)
 	}
-	if !strings.Contains(response.Header.Get("Content-Type"), "text/event-stream") {
-		var result completionResponse
-		if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
-			return fmt.Errorf("decode %s response: %w", c.provider, err)
+
+	var assembled, completed strings.Builder
+	eventName := "message"
+	dataLines := make([]string, 0, 1)
+	processEvent := func() error {
+		if len(dataLines) == 0 {
+			eventName = "message"
+			return nil
 		}
-		if result.Error != nil {
-			return errors.New(result.Error.Message)
+		data := strings.Join(dataLines, "\n")
+		dataLines = dataLines[:0]
+		var payload struct {
+			Delta    string `json:"delta"`
+			Content  string `json:"content"`
+			Message  any    `json:"message"`
+			ToolName string `json:"tool_name"`
+			Preview  string `json:"preview"`
 		}
-		if len(result.Choices) == 0 || result.Choices[0].Message.Content == "" {
-			return errors.New("provider returned an empty completion")
+		if err := json.Unmarshal([]byte(data), &payload); err != nil {
+			return fmt.Errorf("decode Hermes %s event: %w", eventName, err)
 		}
-		onChunk(result.Choices[0].Message.Content)
+		switch eventName {
+		case "assistant.delta":
+			if payload.Delta != "" {
+				assembled.WriteString(payload.Delta)
+				onChunk(payload.Delta)
+			}
+		case "assistant.completed":
+			completed.Reset()
+			completed.WriteString(payload.Content)
+		case "tool.started", "tool.completed", "tool.failed", "tool.progress":
+			onActivity(HermesActivity{State: strings.TrimPrefix(eventName, "tool."), Tool: payload.ToolName, Detail: payload.Preview})
+		case "error":
+			message, _ := payload.Message.(string)
+			if message == "" {
+				message = "Hermes Agent run failed"
+			}
+			return errors.New(message)
+		}
+		eventName = "message"
 		return nil
 	}
 
 	scanner := bufio.NewScanner(response.Body)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-	received := false
+	scanner.Buffer(make([]byte, 64*1024), 2*1024*1024)
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(line, "data:") {
+		line := scanner.Text()
+		if line == "" {
+			if err := processEvent(); err != nil {
+				return assembled.String(), err
+			}
 			continue
 		}
-		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if data == "[DONE]" {
-			break
+		if strings.HasPrefix(line, "event:") {
+			eventName = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
 		}
-		var event completionResponse
-		if err := json.Unmarshal([]byte(data), &event); err != nil {
-			return fmt.Errorf("decode %s stream: %w", c.provider, err)
-		}
-		if event.Error != nil {
-			return errors.New(event.Error.Message)
-		}
-		if len(event.Choices) > 0 && event.Choices[0].Delta.Content != "" {
-			received = true
-			onChunk(event.Choices[0].Delta.Content)
+		if strings.HasPrefix(line, "data:") {
+			dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("read %s stream: %w", c.provider, err)
+		return assembled.String(), fmt.Errorf("read Hermes Agent stream: %w", err)
 	}
-	if !received {
-		return errors.New("provider returned an empty completion")
+	if err := processEvent(); err != nil {
+		return assembled.String(), err
 	}
-	return nil
+	final := completed.String()
+	if final == "" {
+		final = assembled.String()
+	}
+	if final == "" {
+		return "", errors.New("Hermes Agent returned an empty response")
+	}
+	if suffix := strings.TrimPrefix(final, assembled.String()); suffix != final && suffix != "" {
+		onChunk(suffix)
+	}
+	return final, nil
 }

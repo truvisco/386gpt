@@ -20,10 +20,17 @@ type Message = {
   streaming?: boolean
 }
 
+type AgentActivity = {
+  state: 'started' | 'progress' | 'completed' | 'failed'
+  tool?: string
+  detail?: string
+}
+
 type SocketEvent = {
-  type: 'ready' | 'message' | 'thread_updated' | 'error'
+  type: 'ready' | 'message' | 'thread_updated' | 'agent_activity' | 'error'
   message?: Message
   thread?: Thread
+  activity?: AgentActivity
   error?: string
 }
 
@@ -76,6 +83,8 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [connected, setConnected] = useState(false)
+  const [agentActivity, setAgentActivity] = useState<string | null>(null)
+  const [turbo, setTurbo] = useState(() => window.localStorage.getItem('386gpt-turbo') === 'true')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [runtime, setRuntime] = useState<Runtime>({ provider: 'HERMES', model: 'AUTO' })
@@ -120,14 +129,15 @@ function App() {
     }
     if (typingTimersRef.current.has(incoming.id)) return
 
-    const speedFactor = window._386?.speedFactor || 1
-    const interval = Math.max(8, 18 / speedFactor)
+    const interval = 18
     const timer = window.setInterval(() => {
       const target = assistantTargetsRef.current.get(incoming.id)
       if (!target) return
       const currentLength = renderedLengthsRef.current.get(incoming.id) ?? 0
       const targetCharacters = Array.from(target.content)
-      const nextLength = Math.min(currentLength + 2, targetCharacters.length)
+      const speedFactor = window._386?.speedFactor || 1
+      const charactersPerTick = Math.max(2, Math.round(2 * speedFactor))
+      const nextLength = Math.min(currentLength + charactersPerTick, targetCharacters.length)
       const caughtUp = nextLength >= targetCharacters.length
       const complete = caughtUp && !target.streaming
 
@@ -161,9 +171,15 @@ function App() {
       const incoming = event.message
       if (incoming.role === 'assistant') {
         animateAssistant(incoming)
+        if (!incoming.streaming) setAgentActivity(null)
       } else {
         setMessages((current) => upsertMessage(current, incoming))
       }
+    }
+    if (event.type === 'agent_activity' && event.activity) {
+      const tool = event.activity.tool?.replaceAll('_', ' ').toUpperCase() ?? 'AGENT TOOL'
+      const state = event.activity.state.toUpperCase()
+      setAgentActivity(`${state}: ${tool}`)
     }
     if (event.type === 'thread_updated' && event.thread) {
       const updated = event.thread
@@ -175,6 +191,7 @@ function App() {
         .filter((message) => !(message.streaming && message.content === ''))
         .map((message) => message.streaming ? { ...message, streaming: false } : message))
       setNotice(event.error ?? 'The uplink reported an error.')
+      setAgentActivity(null)
       setSending(false)
     }
   }, [animateAssistant, clearTypingAnimations])
@@ -229,6 +246,11 @@ function App() {
   }, [clearTypingAnimations, loadThreads])
 
   useEffect(() => {
+    window._386.speedFactor = turbo ? 4 : 1
+    window.localStorage.setItem('386gpt-turbo', String(turbo))
+  }, [turbo])
+
+  useEffect(() => {
     if (!activeId) {
       setMessages([])
       socketRef.current?.close()
@@ -260,6 +282,7 @@ function App() {
     setDraft('')
     setSidebarOpen(false)
     setNotice(null)
+    setAgentActivity(null)
     setTimeout(() => textareaRef.current?.focus(), 0)
   }
 
@@ -268,6 +291,7 @@ function App() {
     setActiveId(id)
     setSidebarOpen(false)
     setNotice(null)
+    setAgentActivity(null)
   }
 
   const deleteThread = async (id: string) => {
@@ -284,6 +308,7 @@ function App() {
     const trimmed = content.trim()
     if (!trimmed || sending) return
     setSending(true)
+    setAgentActivity('HERMES AGENT IS THINKING')
     setDraft('')
     setNotice(null)
     try {
@@ -303,6 +328,7 @@ function App() {
     } catch (error) {
       setDraft(trimmed)
       setSending(false)
+      setAgentActivity(null)
       setNotice(error instanceof Error ? error.message : 'Message failed to send.')
     }
   }
@@ -352,8 +378,10 @@ function App() {
         </nav>
 
         <div className="sidebar-footer">
-          <div><span className={`status-dot ${connected ? 'online' : ''}`} /> {connected ? 'UPLINK ACTIVE' : 'STANDBY'}</div>
-          <div>SQLITE // LOCAL</div>
+          <button className={`turbo-button ${turbo ? 'active' : ''}`} type="button" aria-pressed={turbo} onClick={() => setTurbo((current) => !current)}>
+            TURBO {turbo ? '×4' : 'OFF'}
+          </button>
+          <div className="sidebar-status"><span className={`status-dot ${connected ? 'online' : ''}`} /> {connected ? 'UPLINK ACTIVE' : 'STANDBY'}<br />SQLITE // LOCAL</div>
         </div>
       </aside>
 
@@ -409,7 +437,7 @@ function App() {
             <textarea ref={textareaRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKey} placeholder="ENTER MESSAGE..." rows={1} aria-label="Message" />
             <button type="submit" className="send-button" disabled={!draft.trim() || sending} aria-label="Send message">{sending ? '...' : <Icon name="send" />}</button>
           </form>
-          <div className="composer-meta"><span>ENTER TO SEND · SHIFT+ENTER FOR NEW LINE</span><span>MESSAGES SAVED LOCALLY</span></div>
+          <div className="composer-meta"><span>ENTER TO SEND · SHIFT+ENTER FOR NEW LINE</span><span className={agentActivity ? 'agent-activity' : ''}>{agentActivity ?? 'HERMES SESSION · SQLITE ARCHIVE'}</span></div>
         </footer>
       </main>
     </div>

@@ -13,10 +13,11 @@ import (
 )
 
 type socketEvent struct {
-	Type    string   `json:"type"`
-	Message *Message `json:"message,omitempty"`
-	Thread  *Thread  `json:"thread,omitempty"`
-	Error   string   `json:"error,omitempty"`
+	Type     string          `json:"type"`
+	Message  *Message        `json:"message,omitempty"`
+	Thread   *Thread         `json:"thread,omitempty"`
+	Activity *HermesActivity `json:"activity,omitempty"`
+	Error    string          `json:"error,omitempty"`
 }
 
 type clientCommand struct {
@@ -138,7 +139,7 @@ func (c *Client) readLoop(server *Server) {
 				server.hub.broadcast(c.threadID, socketEvent{Type: "thread_updated", Thread: &thread})
 			}
 		}
-		go server.respond(c.threadID)
+		go server.respond(c.threadID, content)
 	}
 }
 
@@ -166,31 +167,34 @@ func (c *Client) writeLoop() {
 	}
 }
 
-func (s *Server) respond(threadID string) {
+func (s *Server) respond(threadID, input string) {
 	id, err := newID()
 	if err != nil {
 		return
 	}
 	message := Message{ID: id, ThreadID: threadID, Role: "assistant", CreatedAt: nowUTC(), Streaming: true}
 	s.hub.broadcast(threadID, socketEvent{Type: "message", Message: &message})
-	history, err := s.store.ListMessages(threadID)
-	if err != nil {
-		s.hub.broadcast(threadID, socketEvent{Type: "error", Error: "could not load conversation history"})
+	if _, err := s.store.GetThread(threadID); err != nil {
+		s.hub.broadcast(threadID, socketEvent{Type: "error", Error: "could not load conversation"})
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
-	err = s.llm.Stream(ctx, history, func(chunk string) {
+	final, err := s.llm.Stream(ctx, threadID, input, func(chunk string) {
 		message.Content += chunk
 		s.hub.broadcast(threadID, socketEvent{Type: "message", Message: &message})
+	}, func(activity HermesActivity) {
+		s.hub.broadcast(threadID, socketEvent{Type: "agent_activity", Activity: &activity})
 	})
 	if err != nil {
-		slog.Error("stream completion", "provider", s.llm.provider, "model", s.llm.model, "error", err)
+		slog.Error("stream Hermes Agent response", "thread_id", threadID, "error", err)
 		if message.Content == "" {
-			s.hub.broadcast(threadID, socketEvent{Type: "error", Error: "the Hermes provider could not complete this request"})
+			s.hub.broadcast(threadID, socketEvent{Type: "error", Error: "Hermes Agent could not complete this request"})
 			return
 		}
 		message.Content += "\n\n[UPLINK INTERRUPTED]"
+	} else {
+		message.Content = final
 	}
 	message.Streaming = false
 	if err := s.store.SaveMessage(message); err != nil {

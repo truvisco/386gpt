@@ -11,10 +11,10 @@ import (
 type Server struct {
 	store *Store
 	hub   *Hub
-	llm   *LLMClient
+	llm   *HermesClient
 }
 
-func newServer(store *Store, llm *LLMClient) *Server {
+func newServer(store *Store, llm *HermesClient) *Server {
 	return &Server{store: store, hub: newHub(), llm: llm}
 }
 
@@ -85,8 +85,8 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) runtime(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
-		"provider": s.llm.provider,
-		"model":    s.llm.model,
+		"provider": "Hermes Agent",
+		"model":    "Hermes",
 		"upstream": s.llm.baseURL,
 	})
 }
