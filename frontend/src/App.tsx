@@ -37,6 +37,24 @@ const quickPrompts = [
   ['IMAGINE', 'Write a cyberpunk story in six sentences'],
 ]
 
+function upsertMessage(messages: Message[], incoming: Message) {
+  const index = messages.findIndex((message) => message.id === incoming.id)
+  if (index === -1) return [...messages, incoming]
+  const next = [...messages]
+  next[index] = incoming
+  return next
+}
+
+function mergeThreadMessages(persisted: Message[], live: Message[], threadId: string) {
+  const liveForThread = live.filter((message) => message.threadId === threadId)
+  const persistedIDs = new Set(persisted.map((message) => message.id))
+  const liveByID = new Map(liveForThread.map((message) => [message.id, message]))
+  return [
+    ...persisted.map((message) => liveByID.get(message.id) ?? message),
+    ...liveForThread.filter((message) => !persistedIDs.has(message.id)),
+  ]
+}
+
 function Icon({ name }: { name: 'menu' | 'plus' | 'trash' | 'send' | 'copy' | 'spark' | 'close' }) {
   const paths = {
     menu: <path d="M4 7h16M4 12h16M4 17h16" />,
@@ -90,13 +108,7 @@ function App() {
 
   const animateAssistant = useCallback((incoming: Message) => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      setMessages((current) => {
-        const index = current.findIndex((message) => message.id === incoming.id)
-        if (index === -1) return [...current, incoming]
-        const next = [...current]
-        next[index] = incoming
-        return next
-      })
+      setMessages((current) => upsertMessage(current, incoming))
       if (!incoming.streaming) setSending(false)
       return
     }
@@ -122,13 +134,14 @@ function App() {
       renderedLengthsRef.current.set(incoming.id, nextLength)
       setMessages((current) => {
         const index = current.findIndex((message) => message.id === incoming.id)
-        if (index === -1) return current
-        const next = [...current]
-        next[index] = {
+        const animated = {
           ...target,
           content: targetCharacters.slice(0, nextLength).join(''),
           streaming: !complete,
         }
+        if (index === -1) return [...current, animated]
+        const next = [...current]
+        next[index] = animated
         return next
       })
 
@@ -149,7 +162,7 @@ function App() {
       if (incoming.role === 'assistant') {
         animateAssistant(incoming)
       } else {
-        setMessages((current) => [...current, incoming])
+        setMessages((current) => upsertMessage(current, incoming))
       }
     }
     if (event.type === 'thread_updated' && event.thread) {
@@ -226,7 +239,11 @@ function App() {
     let cancelled = false
     setLoading(true)
     request<{ messages: Message[] }>(`/api/threads/${activeId}/messages`)
-      .then((data) => { if (!cancelled) setMessages(data.messages) })
+      .then((data) => {
+        if (!cancelled) {
+          setMessages((current) => mergeThreadMessages(data.messages, current, activeId))
+        }
+      })
       .catch((error) => { if (!cancelled) setNotice(error.message) })
       .finally(() => { if (!cancelled) setLoading(false) })
     void connectSocket(activeId).catch(() => undefined)
