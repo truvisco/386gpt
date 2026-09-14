@@ -47,7 +47,7 @@ The backend reads Hermes's active custom provider, model, base URL, API mode, an
 
 The `master` branch deploys through the `386GPT` Jenkins multibranch job. Jenkins reads the Hermes configuration from `/prod/386gpt/hermes-config` in its authenticated local etcd instance, builds and verifies the application, and installs an atomic backend release on `web1`.
 
-The production API is `https://api-386gpt.truvis.co`. It runs as the `386gpt.service` systemd unit on `127.0.0.1:20386`, with nginx and Cloudflare in front. SQLite data is retained outside individual releases at `/var/www/vhosts/api-386gpt.truvis.co/shared/data/386gpt.db`.
+The production frontend is deployed as a Cloudflare Worker with static assets at `https://386gpt.truvis.co`. The production API is `https://api-386gpt.truvis.co`; it runs as the `386gpt.service` systemd unit on `127.0.0.1:20386`, with nginx and Cloudflare in front. SQLite data is retained outside individual releases at `/var/www/vhosts/api-386gpt.truvis.co/shared/data/386gpt.db`.
 
 ## Stack
 

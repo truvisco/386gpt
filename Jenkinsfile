@@ -11,6 +11,8 @@ pipeline {
         APP_NAME = '386gpt'
         BACKEND_HOST = 'web1'
         BACKEND_ORIGIN = 'https://api-386gpt.truvis.co'
+        FRONTEND_ORIGIN = 'https://386gpt.truvis.co'
+        VITE_API_URL = 'https://api-386gpt.truvis.co'
         ETCD_ENV_FILE = '/etc/etcd/jenkins.env'
         ETCD_PREFIX = '/prod/386gpt'
         SHARED_ETCD_PREFIX = '/prod/truvis.co'
@@ -100,22 +102,43 @@ pipeline {
             }
         }
 
+        stage('Deploy frontend') {
+            when { branch 'master' }
+            steps {
+                dir('frontend') {
+                    sh '''
+                        set +x
+                        test -f dist/client/index.html
+                        grep -R --quiet "api-386gpt.truvis.co" dist/client/assets
+                        sh ../deploy/jenkins/with-cloudflare-env.sh npx wrangler deploy
+                    '''
+                }
+            }
+        }
+
         stage('Smoke test') {
             when { branch 'master' }
             steps {
                 sh '''
                     set -eu
-                    attempts=0
-                    until curl --fail --silent --show-error --connect-timeout 10 --max-time 15 "$BACKEND_ORIGIN/health" >/dev/null; do
-                        attempts=$((attempts + 1))
-                        if [ "$attempts" -ge 120 ]; then
-                            echo "Public health check did not become ready." >&2
-                            exit 1
-                        fi
-                        echo "Waiting for $BACKEND_ORIGIN ($attempts/120)..."
-                        sleep 5
-                    done
+                    wait_for_url() {
+                        url=$1
+                        attempts=0
+                        until curl --fail --silent --show-error --connect-timeout 10 --max-time 15 "$url" >/dev/null; do
+                            attempts=$((attempts + 1))
+                            if [ "$attempts" -ge 120 ]; then
+                                echo "$url did not become ready." >&2
+                                exit 1
+                            fi
+                            echo "Waiting for $url ($attempts/120)..."
+                            sleep 5
+                        done
+                    }
+
+                    wait_for_url "$BACKEND_ORIGIN/health"
+                    wait_for_url "$FRONTEND_ORIGIN/"
                     curl --fail --silent --show-error "$BACKEND_ORIGIN/api/runtime" >/dev/null
+                    curl --fail --silent --show-error "$FRONTEND_ORIGIN/" | grep --quiet '<title>386GPT</title>'
                     node deploy/smoke/websocket.mjs "$BACKEND_ORIGIN"
                 '''
             }
