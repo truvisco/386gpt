@@ -13,7 +13,7 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
-    "bootstra.386": "github:kristopolous/BOOTSTRA.386",
+    "bootstra.386": "https://codeload.github.com/kristopolous/BOOTSTRA.386/tar.gz/5a42e54220e5f96c4a2e3a7486c3865d480e32f4",
     "jquery": "^3.7.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
