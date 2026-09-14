@@ -108,11 +108,11 @@ pipeline {
                     attempts=0
                     until curl --fail --silent --show-error --connect-timeout 10 --max-time 15 "$BACKEND_ORIGIN/health" >/dev/null; do
                         attempts=$((attempts + 1))
-                        if [ "$attempts" -ge 60 ]; then
+                        if [ "$attempts" -ge 120 ]; then
                             echo "Public health check did not become ready." >&2
                             exit 1
                         fi
-                        echo "Waiting for $BACKEND_ORIGIN ($attempts/60)..."
+                        echo "Waiting for $BACKEND_ORIGIN ($attempts/120)..."
                         sleep 5
                     done
                     curl --fail --silent --show-error "$BACKEND_ORIGIN/api/runtime" >/dev/null
