@@ -121,10 +121,19 @@ pipeline {
             steps {
                 sh '''
                     set -eu
+                    curl_public() {
+                        url=$1
+                        hostname=$(printf '%s' "$url" | sed -E 's#^https://([^/]+).*$#\1#')
+                        address=$(drill @1.1.1.1 "$hostname" A | awk '$4 == "A" { print $5; exit }')
+                        test -n "$address" || return 1
+                        curl --fail --silent --show-error --connect-timeout 10 --max-time 15 \
+                            --resolve "$hostname:443:$address" "$url"
+                    }
+
                     wait_for_url() {
                         url=$1
                         attempts=0
-                        until curl --fail --silent --show-error --connect-timeout 10 --max-time 15 "$url" >/dev/null; do
+                        until curl_public "$url" >/dev/null; do
                             attempts=$((attempts + 1))
                             if [ "$attempts" -ge 120 ]; then
                                 echo "$url did not become ready." >&2
@@ -137,8 +146,8 @@ pipeline {
 
                     wait_for_url "$BACKEND_ORIGIN/health"
                     wait_for_url "$FRONTEND_ORIGIN/"
-                    curl --fail --silent --show-error "$BACKEND_ORIGIN/api/runtime" >/dev/null
-                    curl --fail --silent --show-error "$FRONTEND_ORIGIN/" | grep --quiet '<title>386GPT</title>'
+                    curl_public "$BACKEND_ORIGIN/api/runtime" >/dev/null
+                    curl_public "$FRONTEND_ORIGIN/" | grep --quiet '<title>386GPT</title>'
                     node deploy/smoke/websocket.mjs "$BACKEND_ORIGIN"
                 '''
             }
