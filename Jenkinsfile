@@ -123,12 +123,7 @@ pipeline {
                     set -eu
                     curl_public() {
                         url=$1
-                        hostname=${url#https://}
-                        hostname=${hostname%%/*}
-                        address=$(drill @1.1.1.1 "$hostname" A | awk '$4 == "A" { print $5; exit }')
-                        test -n "$address" || return 1
-                        curl --fail --silent --show-error --connect-timeout 10 --max-time 15 \
-                            --resolve "$hostname:443:$address" "$url"
+                        curl --fail --silent --show-error --connect-timeout 10 --max-time 15 "$url"
                     }
 
                     wait_for_url() {
