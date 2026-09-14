@@ -125,7 +125,7 @@ pipeline {
                         url=$1
                         hostname=${url#https://}
                         hostname=${hostname%%/*}
-                        address=$(drill @1.1.1.1 "$hostname" A | awk '$3 == "A" { print $4; exit }')
+                        address=$(drill @1.1.1.1 "$hostname" A | awk '$4 == "A" { print $5; exit }')
                         test -n "$address" || return 1
                         curl --fail --silent --show-error --connect-timeout 10 --max-time 15 \
                             --resolve "$hostname:443:$address" "$url"
