@@ -29,7 +29,7 @@ try {
       if (
         payload.type === 'message' &&
         payload.message?.role === 'assistant' &&
-        payload.message.streaming === false &&
+        payload.message.streaming !== true &&
         payload.message.content?.trim()
       ) {
         clearTimeout(timeout)
