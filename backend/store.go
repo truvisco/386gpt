@@ -15,6 +15,7 @@ import (
 var errNotFound = errors.New("not found")
 
 type Thread struct {
+	RuntimeID    string `json:"runtimeId"`
 	ID           string `json:"id"`
 	Title        string `json:"title"`
 	CreatedAt    string `json:"createdAt"`
@@ -69,6 +70,25 @@ func (s *Store) migrate() error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_messages_thread_created
 			ON messages(thread_id, created_at);
+		CREATE TABLE IF NOT EXISTS thread_agents (
+		 thread_id TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,
+		 runtime_id TEXT NOT NULL, session_id TEXT NOT NULL
+		);
+		INSERT OR IGNORE INTO thread_agents SELECT id, 'crash', '386gpt-' || id FROM threads;
+		CREATE TABLE IF NOT EXISTS runs (
+		 id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+		 status TEXT NOT NULL, request TEXT NOT NULL, snapshot TEXT NOT NULL
+		);
+		CREATE UNIQUE INDEX IF NOT EXISTS runs_one_active ON runs(thread_id)
+		 WHERE status IN ('submitting','queued','running','waiting_for_approval','stopping');
+		CREATE TABLE IF NOT EXISTS agent_events (
+		 seq INTEGER PRIMARY KEY AUTOINCREMENT,
+		 thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+		 run_id TEXT NOT NULL, kind TEXT NOT NULL, source_key TEXT,
+		 data TEXT NOT NULL, created_at TEXT NOT NULL,
+		 UNIQUE(thread_id, source_key)
+		);
+		CREATE INDEX IF NOT EXISTS agent_events_thread ON agent_events(thread_id,seq);
 	`)
 	return err
 }
@@ -90,11 +110,12 @@ const threadSelect = `
 		COALESCE((SELECT MAX(m.created_at) FROM messages m WHERE m.thread_id = t.id), t.created_at),
 		COALESCE((SELECT m.content FROM messages m WHERE m.thread_id = t.id ORDER BY m.created_at DESC LIMIT 1), ''),
 		(SELECT COUNT(*) FROM messages m WHERE m.thread_id = t.id)
+	, COALESCE((SELECT runtime_id FROM thread_agents WHERE thread_id=t.id), 'crash')
 	FROM threads t`
 
 func scanThread(scanner interface{ Scan(...any) error }) (Thread, error) {
 	var thread Thread
-	err := scanner.Scan(&thread.ID, &thread.Title, &thread.CreatedAt, &thread.UpdatedAt, &thread.LastMessage, &thread.MessageCount)
+	err := scanner.Scan(&thread.ID, &thread.Title, &thread.CreatedAt, &thread.UpdatedAt, &thread.LastMessage, &thread.MessageCount, &thread.RuntimeID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Thread{}, errNotFound
 	}
@@ -123,6 +144,10 @@ func (s *Store) GetThread(id string) (Thread, error) {
 }
 
 func (s *Store) CreateThread(title string) (Thread, error) {
+	return s.CreateThreadRuntime(title, "crash")
+}
+
+func (s *Store) CreateThreadRuntime(title, runtime string) (Thread, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		title = "New conversation"
@@ -132,7 +157,18 @@ func (s *Store) CreateThread(title string) (Thread, error) {
 		return Thread{}, err
 	}
 	createdAt := nowUTC()
-	if _, err := s.db.Exec(`INSERT INTO threads (id, title, created_at) VALUES (?, ?, ?)`, id, title, createdAt); err != nil {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Thread{}, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO threads (id, title, created_at) VALUES (?, ?, ?)`, id, title, createdAt); err != nil {
+		return Thread{}, err
+	}
+	if _, err := tx.Exec(`INSERT INTO thread_agents VALUES (?,?,?)`, id, runtime, hermesSessionID(id)); err != nil {
+		return Thread{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return Thread{}, err
 	}
 	return s.GetThread(id)
@@ -155,12 +191,15 @@ func (s *Store) RenameThread(id, title string) (Thread, error) {
 }
 
 func (s *Store) DeleteThread(id string) error {
-	result, err := s.db.Exec(`DELETE FROM threads WHERE id = ?`, id)
+	result, err := s.db.Exec(`DELETE FROM threads WHERE id = ? AND NOT EXISTS (SELECT 1 FROM runs WHERE thread_id=? AND status IN ('submitting','queued','running','waiting_for_approval','stopping'))`, id, id)
 	if err != nil {
 		return err
 	}
 	changed, _ := result.RowsAffected()
 	if changed == 0 {
+		if _, e := s.GetThread(id); e == nil {
+			return errors.New("stop the active run before deleting this conversation")
+		}
 		return errNotFound
 	}
 	return nil

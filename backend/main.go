@@ -36,9 +36,12 @@ func main() {
 	}
 	defer store.Close()
 
+	app := newServer(store, llm)
+	defer app.close()
+	app.recoverRuns()
 	server := &http.Server{
 		Addr:              address,
-		Handler:           newServer(store, llm).routes(),
+		Handler:           app.routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

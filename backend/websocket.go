@@ -13,6 +13,8 @@ import (
 )
 
 type socketEvent struct {
+	Run      *AgentRun       `json:"run,omitempty"`
+	Event    *AgentEvent     `json:"event,omitempty"`
 	Type     string          `json:"type"`
 	Message  *Message        `json:"message,omitempty"`
 	Thread   *Thread         `json:"thread,omitempty"`
@@ -21,8 +23,10 @@ type socketEvent struct {
 }
 
 type clientCommand struct {
-	Type    string `json:"type"`
-	Content string `json:"content"`
+	RequestID string   `json:"requestId,omitempty"`
+	Skills    []string `json:"skills,omitempty"`
+	Type      string   `json:"type"`
+	Content   string   `json:"content"`
 }
 
 type Client struct {
@@ -125,21 +129,12 @@ func (c *Client) readLoop(server *Server) {
 			server.hub.broadcast(c.threadID, socketEvent{Type: "error", Error: "message content is required"})
 			continue
 		}
-		message, err := server.store.AddMessage(c.threadID, "user", content)
-		if err != nil {
-			server.hub.broadcast(c.threadID, socketEvent{Type: "error", Error: "could not save message"})
-			continue
+		if command.RequestID == "" {
+			command.RequestID, _ = newID()
 		}
-		server.hub.broadcast(c.threadID, socketEvent{Type: "message", Message: &message})
-
-		thread, err := server.store.GetThread(c.threadID)
-		if err == nil && thread.Title == "New conversation" {
-			thread, err = server.store.RenameThread(c.threadID, titleFromMessage(content))
-			if err == nil {
-				server.hub.broadcast(c.threadID, socketEvent{Type: "thread_updated", Thread: &thread})
-			}
+		if _, err := server.submit(context.Background(), c.threadID, command.RequestID, content, command.Skills); err != nil {
+			server.hub.broadcast(c.threadID, socketEvent{Type: "error", Error: err.Error()})
 		}
-		go server.respond(c.threadID, content)
 	}
 }
 
@@ -164,45 +159,5 @@ func (c *Client) writeLoop() {
 				return
 			}
 		}
-	}
-}
-
-func (s *Server) respond(threadID, input string) {
-	id, err := newID()
-	if err != nil {
-		return
-	}
-	message := Message{ID: id, ThreadID: threadID, Role: "assistant", CreatedAt: nowUTC(), Streaming: true}
-	s.hub.broadcast(threadID, socketEvent{Type: "message", Message: &message})
-	if _, err := s.store.GetThread(threadID); err != nil {
-		s.hub.broadcast(threadID, socketEvent{Type: "error", Error: "could not load conversation"})
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
-	final, err := s.llm.Stream(ctx, threadID, input, func(chunk string) {
-		message.Content += chunk
-		s.hub.broadcast(threadID, socketEvent{Type: "message", Message: &message})
-	}, func(activity HermesActivity) {
-		s.hub.broadcast(threadID, socketEvent{Type: "agent_activity", Activity: &activity})
-	})
-	if err != nil {
-		slog.Error("stream Hermes Agent response", "thread_id", threadID, "error", err)
-		if message.Content == "" {
-			s.hub.broadcast(threadID, socketEvent{Type: "error", Error: "Hermes Agent could not complete this request"})
-			return
-		}
-		message.Content += "\n\n[UPLINK INTERRUPTED]"
-	} else {
-		message.Content = final
-	}
-	message.Streaming = false
-	if err := s.store.SaveMessage(message); err != nil {
-		s.hub.broadcast(threadID, socketEvent{Type: "error", Error: "could not save assistant message"})
-		return
-	}
-	s.hub.broadcast(threadID, socketEvent{Type: "message", Message: &message})
-	if thread, err := s.store.GetThread(threadID); err == nil {
-		s.hub.broadcast(threadID, socketEvent{Type: "thread_updated", Thread: &thread})
 	}
 }

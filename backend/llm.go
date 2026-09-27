@@ -16,14 +16,24 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const hermesSystemPrompt = "You are chatting with the user through 386GPT, a persistent personal chat surface. Behave as you would in a direct Telegram conversation: be conversational, use Hermes tools, skills, and memory when useful, and return a clear final response."
+const hermesSystemPrompt = `You are Hermes, the user's working assistant in 386GPT. Use your tools to carry out requested work, including software implementation. An action request asks you to do the work, not give the user commands to run.
+
+Continue through inspection, implementation, verification, and any explicitly requested commit or push. After a tool error, inspect the cause and try a corrected approach within the authorized task. Ask the user only when missing information or authorization actually blocks progress. Respect tool approval decisions; do not bypass them.
+
+For repository work, inspect pwd, git status, and git remote -v before making assumptions. Your terminal may preserve its working directory between calls and turns. Use verified absolute paths or git -C; do not repeatedly cd into a directory you are already inside. Clone each repository separately and verify its origin. Read the relevant source and repository instructions, create the requested branch, make actual code changes, and run appropriate checks before committing. Never treat a feature name as an existing filename or create an empty commit as a substitute for implementation.
+
+Base claims on tool results. A failed command is not a successful change. Verify files, branch, commit, or remote state before reporting them. Distinguish completed work, failed checks, and remaining blockers. Keep the final response concise, but do not stop working merely to keep it short.`
+
+type agentConnection struct {
+	BaseURL    string `yaml:"base_url"`
+	APIKey     string `yaml:"api_key"`
+	SessionKey string `yaml:"session_key"`
+}
 
 type hermesConfig struct {
-	Agent struct {
-		BaseURL    string `yaml:"base_url"`
-		APIKey     string `yaml:"api_key"`
-		SessionKey string `yaml:"session_key"`
-	} `yaml:"agent"`
+	Agent          agentConnection            `yaml:"agent"`
+	DefaultRuntime string                     `yaml:"default_runtime"`
+	Runtimes       map[string]agentConnection `yaml:"runtimes"`
 }
 
 type HermesActivity struct {
@@ -33,10 +43,12 @@ type HermesActivity struct {
 }
 
 type HermesClient struct {
-	baseURL    string
-	apiKey     string
-	sessionKey string
-	httpClient *http.Client
+	defaultRuntime string
+	runtimes       map[string]*HermesClient
+	baseURL        string
+	apiKey         string
+	sessionKey     string
+	httpClient     *http.Client
 }
 
 type hermesSessionResponse struct {
@@ -66,6 +78,23 @@ func loadHermesAgent(path string) (*HermesClient, error) {
 	if err := yaml.Unmarshal(contents, &config); err != nil {
 		return nil, fmt.Errorf("parse Hermes agent config: %w", err)
 	}
+	if len(config.Runtimes) > 0 {
+		root := &HermesClient{defaultRuntime: config.DefaultRuntime, runtimes: map[string]*HermesClient{}}
+		for name, entry := range config.Runtimes {
+			if name != "local" && name != "crash" {
+				return nil, fmt.Errorf("unknown runtime %q", name)
+			}
+			if entry.BaseURL == "" || entry.APIKey == "" || entry.SessionKey == "" {
+				return nil, fmt.Errorf("runtime %s requires base_url, api_key and session_key", name)
+			}
+			root.runtimes[name] = &HermesClient{baseURL: strings.TrimRight(entry.BaseURL, "/"), apiKey: entry.APIKey, sessionKey: entry.SessionKey, httpClient: &http.Client{}}
+		}
+		if root.runtimes[root.defaultRuntime] == nil || root.runtimes["crash"] == nil {
+			return nil, errors.New("default runtime and legacy crash runtime must be configured")
+		}
+		root.baseURL = root.runtimes[root.defaultRuntime].baseURL
+		return root, nil
+	}
 	if strings.TrimSpace(config.Agent.BaseURL) == "" {
 		return nil, errors.New("Hermes agent config must define agent.base_url")
 	}
@@ -76,16 +105,17 @@ func loadHermesAgent(path string) (*HermesClient, error) {
 		return nil, errors.New("Hermes agent config must define agent.session_key")
 	}
 	return &HermesClient{
-		baseURL:    strings.TrimRight(config.Agent.BaseURL, "/"),
-		apiKey:     config.Agent.APIKey,
-		sessionKey: config.Agent.SessionKey,
-		httpClient: &http.Client{},
+		defaultRuntime: "crash",
+		baseURL:        strings.TrimRight(config.Agent.BaseURL, "/"),
+		apiKey:         config.Agent.APIKey,
+		sessionKey:     config.Agent.SessionKey,
+		httpClient:     &http.Client{},
 	}, nil
 }
 
 func hermesSessionID(threadID string) string { return "386gpt-" + threadID }
 
-func (c *HermesClient) newRequest(ctx context.Context, method, path string, body any) (*http.Request, error) {
+func (c *HermesClient) newRequest(ctx context.Context, threadID, method, path string, body any) (*http.Request, error) {
 	var reader io.Reader
 	if body != nil {
 		payload, err := json.Marshal(body)
@@ -99,7 +129,9 @@ func (c *HermesClient) newRequest(ctx context.Context, method, path string, body
 		return nil, err
 	}
 	request.Header.Set("Authorization", "Bearer "+c.apiKey)
-	request.Header.Set("X-Hermes-Session-Key", c.sessionKey)
+	// Hermes uses this key for terminal state as well as memory scope. Sharing
+	// it across threads leaks cwd/environment changes into unrelated chats.
+	request.Header.Set("X-Hermes-Session-Key", c.sessionKey+":thread:"+threadID)
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
@@ -123,7 +155,7 @@ func hermesError(response *http.Response) error {
 }
 
 func (c *HermesClient) ensureSession(ctx context.Context, threadID string) error {
-	request, err := c.newRequest(ctx, http.MethodPost, "/api/sessions", map[string]any{
+	request, err := c.newRequest(ctx, threadID, http.MethodPost, "/api/sessions", map[string]any{
 		"id":            hermesSessionID(threadID),
 		"source":        "api_server",
 		"system_prompt": hermesSystemPrompt,
@@ -156,8 +188,12 @@ func (c *HermesClient) Stream(ctx context.Context, threadID, input string, onChu
 	if err := c.ensureSession(ctx, threadID); err != nil {
 		return "", err
 	}
-	request, err := c.newRequest(ctx, http.MethodPost, "/api/sessions/"+hermesSessionID(threadID)+"/chat/stream", map[string]string{
+	request, err := c.newRequest(ctx, threadID, http.MethodPost, "/api/sessions/"+hermesSessionID(threadID)+"/chat/stream", map[string]string{
 		"message": input,
+		// Hermes stores the session's system_prompt as metadata, but this chat
+		// route takes runtime instructions from each request's system_message.
+		// Send it on every turn, including sessions created before this version.
+		"system_message": hermesSystemPrompt,
 	})
 	if err != nil {
 		return "", err

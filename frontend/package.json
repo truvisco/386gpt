@@ -10,7 +10,8 @@
     "lint": "oxlint",
     "preview": "npm run build && vite preview",
     "deploy": "npm run build && wrangler deploy",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "test:e2e": "node scripts/agent-ui.test.mjs"
   },
   "dependencies": {
     "bootstra.386": "https://codeload.github.com/kristopolous/BOOTSTRA.386/tar.gz/5a42e54220e5f96c4a2e3a7486c3865d480e32f4",
@@ -26,6 +27,7 @@
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",
     "oxlint": "^1.79.0",
+    "playwright": "^1.62.1",
     "typescript": "~6.0.2",
     "vite": "^8.2.2",
     "wrangler": "^4.131.1"

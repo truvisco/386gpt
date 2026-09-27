@@ -51,6 +51,16 @@ systemctl enable 386gpt.service >/dev/null
 if [ -L "$current_link" ]; then
     previous_target=$(readlink -f "$current_link")
 fi
+database=$deploy_root/shared/data/386gpt.db
+if [ -f "$database" ]; then
+    # SQLite's backup API includes committed WAL data while the old server runs.
+    python3 - "$database" "$database.before-$release_id" <<'PY'
+import os, sqlite3, sys
+os.umask(0o077)
+with sqlite3.connect(sys.argv[1]) as source, sqlite3.connect(sys.argv[2]) as backup:
+    source.backup(backup)
+PY
+fi
 ln -sfn "$release_dir" "$current_link"
 systemctl restart 386gpt.service
 systemctl reload nginx.service

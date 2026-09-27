@@ -2,6 +2,11 @@
 
 A DOS-inspired chat interface with a React frontend and Go backend. Conversations are persisted in SQLite and new messages stream over WebSockets.
 
+Each conversation has a bookmarkable `/conversations/<id>` URL. Reloading or
+opening the link restores that thread; browser Back/Forward switches between
+conversations. `/` starts a new chat, and sending its first message creates the
+conversation URL.
+
 ## Development
 
 Requirements: Node.js 20+, Go 1.26+, and npm. Older Go installations with automatic toolchain downloads enabled will fetch the required toolchain.
@@ -41,23 +46,43 @@ Frontend environment variables:
 
 - `VITE_API_URL`: backend HTTP origin, default `http://localhost:8080`
 
-The backend talks to Hermes Agent's authenticated API-server session endpoint instead of calling an LLM provider directly. Each 386GPT thread becomes a durable Hermes session, while `agent.session_key` supplies a stable chat identity for long-term memory across threads. Hermes owns the agent loop, tools, skills, memory, and provider selection.
+The backend uses Hermes's authenticated run API. It durably stores submissions before sending them, retries with the same idempotency key, and reconciles run status and tool transcripts after disconnects or backend restarts. Each conversation has a fixed runtime and a durable Hermes session. Instructions are supplied on every run.
 
-Keep the connection file outside the repository:
+The conversation panel shows the actual tool host, working directory, skills, tool arguments and results, pending approvals, and stop/update controls. Agent completion is distinct from successful tool execution. Only choices offered by Hermes appear in approval prompts. Credentials stay on the backend; reasoning text is not exposed as execution evidence. Conversation URLs use `/conversations/<id>` and survive reloads.
 
-```yaml
-agent:
-  base_url: http://127.0.0.1:8642
-  api_key: replace-with-api-server-key
-  session_key: agent:main:386gpt:dm:owner
+To check agent behavior against a running backend and the real Hermes host:
+
+```sh
+node deploy/smoke/agent-workflow.mjs http://localhost:8080 local
 ```
 
-Local development uses the same private Hermes agent on `crash` as production.
-After the crash setup below, install its connection file on this Mac with
-`sh deploy/development/configure-hermes-client.sh`, then restart `go tool air`.
-This writes `~/.hermes/386gpt.yaml` with owner-only permissions. The Mac needs
-Tailscale access to `100.74.13.43:8643`; it does not need to run the model or hold
-the Unsloth API key. Override `HERMES_SSH_HOST` or `HERMES_CONFIG` if needed.
+This opt-in test uses SSH to create a disposable Python Git repository on the
+Hermes host. Across two turns it asks the agent to inspect failing tests, retain
+the repository context, implement a function, test it, and commit on a new
+branch. It independently checks the resulting code and Git state, then removes
+the fixture and app thread. It never pushes a commit. The Hermes transcript is
+retained for diagnosis. Unlike the short `websocket.mjs` connectivity check,
+this test rejects replies that merely claim success without doing the work.
+Install `ripgrep` on the Hermes host so its file-search tool can search safely.
+
+The Gemma E2B Q4_K_P profile has not passed this coding acceptance test: it
+attempted edits but stopped with failing tests and no implementation commit,
+including when tested with thinking enabled. A successful connectivity smoke
+test does not establish reliable autonomous coding behavior.
+
+Local development runs tools on book14 while inference remains on crash's Unsloth server. Existing conversations stay pinned to crash; create a new conversation for local execution. After configuring crash below, run:
+
+```sh
+sh deploy/development/configure-hermes-client.sh
+```
+
+This prepares a dedicated pinned Hermes checkout and the `386gpt-local` profile, installs the loopback LaunchAgent `co.truvis.386gpt.hermes` on port 8643, and writes owner-only `~/.hermes/386gpt.yaml`. Restart `go tool air` afterward. The existing default Hermes profile is unaffected. Tailscale access to crash's Unsloth port 8888 is required. `HERMES_SSH_HOST` and `HERMES_CONFIG` override connection installation defaults.
+
+The private development configuration contains `default_runtime: local` and a `runtimes` mapping with `local` and `crash` entries; each entry has `base_url`, `api_key`, and `session_key`. Production retains the legacy `agent` mapping, which selects crash. Never move existing thread bindings between hosts implicitly.
+
+Both dedicated runtimes pin Hermes revision `498abb677ec39ea3ae9f8f5ed60e7def6bc47e70`. The reviewed compatibility patch repairs skill discovery, reports host metadata, redacts transcript secrets, and keeps terminal state scoped to the conversation while approval authority stays scoped to the run. Upgrading that pin requires reviewing and validating the patch again. On crash, stage the scripts together, run `prepare-hermes-runtime.sh` as grimlock, then run `activate-hermes-runtime.sh` as root. The latter backs up Hermes state and switches only `hermes-gateway-386gpt.service`. Release installation backs up the app database before migration.
+
+Validation: `go test ./...` and `go vet ./...` in backend; `npm run lint`, `npm run build`, and `npm run test:e2e` in frontend. The browser test expects Vite on port 15173 (override `UI_TEST_ORIGIN`) and mocks the API to exercise recovery and controls. Run `npx playwright install chromium` if the browser is missing.
 
 ## Production
 

@@ -1,27 +1,42 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 type Server struct {
-	store *Store
-	hub   *Hub
-	llm   *HermesClient
+	ctx     context.Context
+	cancel  context.CancelFunc
+	runMu   sync.Mutex
+	runWG   sync.WaitGroup
+	workers map[string]bool
+	store   *Store
+	hub     *Hub
+	llm     *HermesClient
 }
 
 func newServer(store *Store, llm *HermesClient) *Server {
-	return &Server{store: store, hub: newHub(), llm: llm}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Server{store: store, hub: newHub(), llm: llm, ctx: ctx, cancel: cancel, workers: map[string]bool{}}
 }
 
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /api/runtime", s.runtime)
+	mux.HandleFunc("GET /api/skills", s.skills)
+	mux.HandleFunc("GET /api/threads/{id}/activity", s.activity)
+	mux.HandleFunc("GET /api/threads/{id}/runs", s.listRuns)
+	mux.HandleFunc("POST /api/threads/{id}/runs", s.createRun)
+	mux.HandleFunc("POST /api/threads/{id}/runs/{run}/stop", s.controlRun)
+	mux.HandleFunc("POST /api/threads/{id}/runs/{run}/steer", s.controlRun)
+	mux.HandleFunc("POST /api/threads/{id}/runs/{run}/approval", s.controlRun)
 	mux.HandleFunc("GET /api/threads", s.listThreads)
 	mux.HandleFunc("POST /api/threads", s.createThread)
 	mux.HandleFunc("PATCH /api/threads/{id}", s.renameThread)
@@ -61,7 +76,9 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 
 func writeError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
-	if errors.Is(err, errNotFound) {
+	if errors.Is(err, errRunBusy) || errors.Is(err, errRunConflict) || strings.Contains(err.Error(), "stop the active run") {
+		status = http.StatusConflict
+	} else if errors.Is(err, errNotFound) {
 		status = http.StatusNotFound
 	} else if strings.Contains(err.Error(), "required") {
 		status = http.StatusBadRequest
@@ -83,14 +100,6 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *Server) runtime(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{
-		"provider": "Hermes Agent",
-		"model":    "Hermes",
-		"upstream": s.llm.baseURL,
-	})
-}
-
 func (s *Server) listThreads(w http.ResponseWriter, _ *http.Request) {
 	threads, err := s.store.ListThreads()
 	if err != nil {
@@ -107,7 +116,7 @@ func (s *Server) createThread(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	thread, err := s.store.CreateThread(body.Title)
+	thread, err := s.store.CreateThreadRuntime(body.Title, s.llm.defaultID())
 	if err != nil {
 		writeError(w, err)
 		return

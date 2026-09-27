@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import './App.css'
+import { AgentPanel } from './AgentPanel'
+import { useAgent, isActive, agentRequest } from './useAgent'
 
 type Thread = {
   id: string
@@ -34,9 +36,23 @@ type SocketEvent = {
   error?: string
 }
 
-type Runtime = { provider: string; model: string }
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? 'http://localhost:8080').replace(/\/$/, '')
+
+function conversationFromURL() {
+  return /^\/conversations\/([a-zA-Z0-9_-]+)\/?$/.exec(window.location.pathname)?.[1] ?? null
+}
+
+function conversationPath(id: string | null) {
+  return id ? `/conversations/${encodeURIComponent(id)}` : '/'
+}
+
+function updateConversationURL(id: string | null, replace = false) {
+  const path = conversationPath(id)
+  if (window.location.pathname !== path) {
+    window.history[replace ? 'replaceState' : 'pushState'](null, '', path)
+  }
+}
 const quickPrompts = [
   ['EXPLAIN', 'Explain how WebSockets differ from HTTP polling'],
   ['BUILD', 'Design a small REST API for a notes app'],
@@ -47,6 +63,7 @@ const quickPrompts = [
 function upsertMessage(messages: Message[], incoming: Message) {
   const index = messages.findIndex((message) => message.id === incoming.id)
   if (index === -1) return [...messages, incoming]
+  if (incoming.streaming && (!messages[index].streaming || messages[index].content.length > incoming.content.length)) return messages
   const next = [...messages]
   next[index] = incoming
   return next
@@ -77,7 +94,7 @@ function Icon({ name }: { name: 'menu' | 'plus' | 'trash' | 'send' | 'copy' | 's
 
 function App() {
   const [threads, setThreads] = useState<Thread[]>([])
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const [activeId, setActiveId] = useState<string | null>(conversationFromURL)
   const [messages, setMessages] = useState<Message[]>([])
   const [draft, setDraft] = useState('')
   const [loading, setLoading] = useState(true)
@@ -87,7 +104,10 @@ function App() {
   const [turbo, setTurbo] = useState(() => window.localStorage.getItem('386gpt-turbo') === 'true')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
-  const [runtime, setRuntime] = useState<Runtime>({ provider: 'HERMES', model: 'AUTO' })
+  const agent = useAgent(activeId)
+  const runtime = agent.runtime
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([])
+  const pendingSubmission = useRef<{ id: string; thread: string; input: string; skills: string[] } | null>(null)
   const socketRef = useRef<WebSocket | null>(null)
   const socketThreadRef = useRef<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
@@ -95,6 +115,7 @@ function App() {
   const assistantTargetsRef = useRef<Map<string, Message>>(new Map())
   const renderedLengthsRef = useRef<Map<string, number>>(new Map())
   const typingTimersRef = useRef<Map<string, number>>(new Map())
+  const navigationRef = useRef(0)
 
   const request = useCallback(async <T,>(path: string, options?: RequestInit): Promise<T> => {
     const response = await fetch(`${API_BASE}${path}`, {
@@ -115,8 +136,32 @@ function App() {
     renderedLengthsRef.current.clear()
   }, [])
 
+  const activateConversation = useCallback((id: string | null) => {
+    navigationRef.current++
+    clearTypingAnimations()
+    socketRef.current?.close()
+    socketRef.current = null
+    socketThreadRef.current = null
+    setConnected(false)
+    setActiveId(id)
+    setMessages([])
+    setDraft('')
+    setSending(false)
+    setSidebarOpen(false)
+    setNotice(null)
+    setAgentActivity(null)
+    setSelectedSkills([])
+    pendingSubmission.current = null
+  }, [clearTypingAnimations])
+
+  useEffect(() => {
+    const onPopState = () => activateConversation(conversationFromURL())
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [activateConversation])
+
   const animateAssistant = useCallback((incoming: Message) => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (incoming.id.endsWith('-assistant') || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       setMessages((current) => upsertMessage(current, incoming))
       if (!incoming.streaming) setSending(false)
       return
@@ -207,15 +252,21 @@ function App() {
     const socket = new WebSocket(`${wsBase}/ws?thread_id=${encodeURIComponent(threadId)}`)
     socketRef.current = socket
     socketThreadRef.current = threadId
-    socket.onmessage = (raw) => applySocketEvent(JSON.parse(raw.data) as SocketEvent)
+    socket.onmessage = (raw) => {
+      if (socketRef.current === socket) applySocketEvent(JSON.parse(raw.data) as SocketEvent)
+    }
     socket.onclose = () => {
       if (socketRef.current === socket) setConnected(false)
     }
-    socket.onerror = () => setNotice('Realtime uplink unavailable. Is the Go backend running?')
+    socket.onerror = () => {
+      if (socketRef.current === socket) setNotice('Realtime uplink unavailable. Is the Go backend running?')
+    }
     return new Promise<WebSocket>((resolve, reject) => {
       socket.onopen = () => {
-        setConnected(true)
-        setNotice(null)
+        if (socketRef.current === socket) {
+          setConnected(true)
+          setNotice(null)
+        }
         resolve(socket)
       }
       socket.addEventListener('error', () => reject(new Error('WebSocket connection failed')), { once: true })
@@ -224,12 +275,8 @@ function App() {
 
   const loadThreads = useCallback(async () => {
     try {
-      const [data, runtimeData] = await Promise.all([
-	        request<{ threads: Thread[] }>('/api/threads'),
-	        request<Runtime>('/api/runtime'),
-	      ])
+      const data = await request<{ threads: Thread[] }>('/api/threads')
       setThreads(data.threads)
-	    setRuntime(runtimeData)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not load conversations.')
     } finally {
@@ -256,6 +303,7 @@ function App() {
       socketRef.current?.close()
       socketThreadRef.current = null
       setConnected(false)
+      setLoading(false)
       return
     }
     let cancelled = false
@@ -276,29 +324,23 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const newChat = () => {
-    clearTypingAnimations()
-    setActiveId(null)
-    setDraft('')
-    setSidebarOpen(false)
-    setNotice(null)
-    setAgentActivity(null)
+  const newChat = (replace = false) => {
+    updateConversationURL(null, replace)
+    activateConversation(null)
     setTimeout(() => textareaRef.current?.focus(), 0)
   }
 
   const selectThread = (id: string) => {
-    clearTypingAnimations()
-    setActiveId(id)
-    setSidebarOpen(false)
-    setNotice(null)
-    setAgentActivity(null)
+    if (id === activeId) return
+    updateConversationURL(id)
+    activateConversation(id)
   }
 
   const deleteThread = async (id: string) => {
     try {
       await request<{ ok: boolean }>(`/api/threads/${id}`, { method: 'DELETE' })
       setThreads((current) => current.filter((thread) => thread.id !== id))
-      if (activeId === id) newChat()
+      if (conversationFromURL() === id) newChat(true)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not delete the thread.')
     }
@@ -306,7 +348,12 @@ function App() {
 
   const sendMessage = async (content = draft) => {
     const trimmed = content.trim()
-    if (!trimmed || sending) return
+    if (!trimmed || (sending && !isActive(agent.run))) return
+    if (isActive(agent.run)) {
+      await controlRun('steer', { input: trimmed })
+      return
+    }
+    const navigation = navigationRef.current
     setSending(true)
     setAgentActivity('HERMES AGENT IS THINKING')
     setDraft('')
@@ -320,18 +367,54 @@ function App() {
         })
         threadId = data.thread.id
         setThreads((current) => [data.thread, ...current])
+        if (navigation !== navigationRef.current) return
         setMessages([])
+        updateConversationURL(threadId)
+        setActiveId(threadId)
       }
-      const socket = await connectSocket(threadId)
-      socket.send(JSON.stringify({ type: 'user_message', content: trimmed }))
+      if (navigation !== navigationRef.current) return
+      if (!pendingSubmission.current || pendingSubmission.current.thread !== threadId || pendingSubmission.current.input !== trimmed) {
+        pendingSubmission.current = { id: crypto.randomUUID(), thread: threadId, input: trimmed, skills: [...selectedSkills] }
+      }
+      const submission = pendingSubmission.current
+      await agentRequest(`/api/threads/${threadId}/runs`, { method: 'POST', body: JSON.stringify({ requestId: submission.id, message: submission.input, skills: submission.skills }) })
+      pendingSubmission.current = null
+      updateConversationURL(threadId)
       setActiveId(threadId)
+      agent.refresh()
     } catch (error) {
+      if (navigation !== navigationRef.current) return
       setDraft(trimmed)
       setSending(false)
       setAgentActivity(null)
       setNotice(error instanceof Error ? error.message : 'Message failed to send.')
     }
   }
+
+  const controlRun = async (action: string, body: object = {}) => {
+    if (!activeId || !agent.run) return
+    try {
+      await agentRequest(`/api/threads/${activeId}/runs/${agent.run.id}/${action}`, { method: 'POST', body: JSON.stringify(body) })
+      if (action === 'steer') setDraft('')
+      setNotice(null)
+      agent.refresh()
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'Run control failed') }
+  }
+
+  useEffect(() => {
+    if (!agent.run || agent.run.threadId !== activeId) return
+    if (isActive(agent.run)) {
+      setSending(true)
+      setAgentActivity(agent.run.status.toUpperCase().replaceAll('_', ' '))
+    } else {
+      setSending(false)
+      setAgentActivity(null)
+    }
+    if (agent.run.output) {
+      const incoming: Message = { id: `${agent.run.id}-assistant`, threadId: agent.run.threadId, role: 'assistant', content: agent.run.output, createdAt: new Date().toISOString(), streaming: isActive(agent.run) }
+      setMessages(current => upsertMessage(current, incoming))
+    }
+  }, [agent.run, activeId])
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -360,19 +443,25 @@ function App() {
           <button className="icon-button sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Close sidebar"><Icon name="close" /></button>
         </div>
 
-        <button className="new-chat" onClick={newChat}><Icon name="plus" /> NEW CHAT</button>
+        <button className="new-chat" onClick={() => newChat()}><Icon name="plus" /> NEW CHAT</button>
 
         <div className="thread-section-label">// CONVERSATIONS</div>
         <nav className="thread-list">
           {threads.map((thread) => (
-            <button key={thread.id} className={`thread-item ${thread.id === activeId ? 'active' : ''}`} onClick={() => selectThread(thread.id)}>
+            <div key={thread.id} className={`thread-item ${thread.id === activeId ? 'active' : ''}`}>
+              <a className="thread-link" href={conversationPath(thread.id)} aria-current={thread.id === activeId ? 'page' : undefined} onClick={(event) => {
+                if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+                event.preventDefault()
+                selectThread(thread.id)
+              }}>
               <span className="thread-cursor">{thread.id === activeId ? '>' : ' '}</span>
               <span className="thread-copy">
                 <span className="thread-title">{thread.title}</span>
                 <span className="thread-meta">{thread.messageCount} MSG · {new Date(thread.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric' }).toUpperCase()}</span>
               </span>
-              <span className="delete-thread" role="button" tabIndex={0} aria-label={`Delete ${thread.title}`} onClick={(event) => { event.stopPropagation(); void deleteThread(thread.id) }} onKeyDown={(event) => { if (event.key === 'Enter') { event.stopPropagation(); void deleteThread(thread.id) } }}><Icon name="trash" /></span>
-            </button>
+              </a>
+              <button className="delete-thread" aria-label={`Delete ${thread.title}`} onClick={() => void deleteThread(thread.id)}><Icon name="trash" /></button>
+            </div>
           ))}
           {!threads.length && !loading && <div className="empty-history">NO SAVED THREADS<br />CREATE ONE TO BEGIN_</div>}
         </nav>
@@ -397,6 +486,7 @@ function App() {
         </header>
 
         <section className={`conversation ${messages.length ? '' : 'welcome-mode'}`}>
+          <AgentPanel run={agent.run} events={agent.events} runtime={runtime} skills={agent.skills} selected={selectedSkills} onSelect={setSelectedSkills} onSkills={() => void agent.loadSkills()} onControl={(action, body) => void controlRun(action, body)} error={agent.error} />
           {notice && <div className="notice"><strong>ERROR:</strong> {notice}</div>}
           {!messages.length && !loading ? (
             <div className="welcome">
@@ -435,7 +525,7 @@ function App() {
           <form className="composer" onSubmit={submit}>
             <span className="composer-prompt">&gt;</span>
             <textarea ref={textareaRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKey} placeholder="ENTER MESSAGE..." rows={1} aria-label="Message" />
-            <button type="submit" className="send-button" disabled={!draft.trim() || sending} aria-label="Send message">{sending ? '...' : <Icon name="send" />}</button>
+            <button type="submit" className="send-button" disabled={!draft.trim() || (sending && !isActive(agent.run))} aria-label={isActive(agent.run) ? 'Send update' : 'Send message'}>{isActive(agent.run) ? 'UPDATE' : sending ? '...' : <Icon name="send" />}</button>
           </form>
           <div className="composer-meta"><span>ENTER TO SEND · SHIFT+ENTER FOR NEW LINE</span><span className={agentActivity ? 'agent-activity' : ''}>{agentActivity ?? 'HERMES SESSION · SQLITE ARCHIVE'}</span></div>
         </footer>
