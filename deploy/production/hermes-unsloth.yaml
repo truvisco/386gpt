@@ -1,0 +1,25 @@
+model:
+  default: HauhauCS/Gemma-4-E2B-Uncensored-HauhauCS-Aggressive
+  provider: unsloth
+  # Follow-up sessions resolve the saved model through bare `custom`, so keep
+  # its endpoint and credential reference available to that resolver as well.
+  base_url: http://127.0.0.1:8888/v1
+  api_key: ${UNSLOTH_API_KEY}
+  api_mode: chat_completions
+
+custom_providers:
+  - name: unsloth
+    base_url: http://127.0.0.1:8888/v1
+    key_env: UNSLOTH_API_KEY
+    api_mode: chat_completions
+    # Unsloth currently serves this Q4_K_P model with 66,304 context tokens.
+    context_length: 65536
+    extra_body:
+      enable_thinking: false
+      max_tokens: 4096
+
+# 386GPT already titles its threads. Avoid competing background generations
+# on crash's GPU while Hermes is preparing a full agent prompt.
+auxiliary:
+  title_generation:
+    enabled: false

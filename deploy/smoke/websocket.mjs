@@ -16,7 +16,7 @@ if (!response.ok) {
 }
 
 const { thread } = await response.json()
-try {
+async function checkTurn(content) {
   const websocketOrigin = origin.replace(/^http/, 'ws')
   const socket = new WebSocket(`${websocketOrigin}/ws?thread_id=${encodeURIComponent(thread.id)}`)
   const assistantContent = await new Promise((resolve, reject) => {
@@ -24,7 +24,7 @@ try {
     socket.addEventListener('message', (event) => {
       const payload = JSON.parse(event.data)
       if (payload.type === 'ready') {
-        socket.send(JSON.stringify({ type: 'user_message', content: 'Reply with the single word OK.' }))
+        socket.send(JSON.stringify({ type: 'user_message', content }))
       }
       if (
         payload.type === 'message' &&
@@ -50,7 +50,14 @@ try {
   if (assistantContent.toUpperCase() !== 'OK') {
     throw new Error(`unexpected LLM response: ${assistantContent}`)
   }
-  console.log('Public WebSocket and LLM proxy smoke test passed.')
+}
+
+try {
+  await checkTurn('Reply with the single word OK.')
+  // Reopening the same thread exercises Hermes's persisted-model resolution,
+  // which can differ from the provider resolution used for a fresh session.
+  await checkTurn('Reply again with the single word OK.')
+  console.log('Two-turn WebSocket and Hermes session smoke test passed.')
 } finally {
   await fetch(`${origin}/api/threads/${encodeURIComponent(thread.id)}`, { method: 'DELETE' })
 }

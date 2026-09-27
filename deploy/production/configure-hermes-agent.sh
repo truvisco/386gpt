@@ -7,8 +7,11 @@ etcd_ssh_host=${ETCD_SSH_HOST:-brain}
 prefix=${ETCD_PREFIX:-/prod/386gpt}
 hermes_host=${HERMES_API_HOST:-100.74.13.43}
 hermes_port=${HERMES_API_PORT:-8643}
-profile_name=${HERMES_PROFILE:-386gpt}
+profile_name=${HERMES_PROFILE:-unsloth}
 service_name=${HERMES_SERVICE_NAME:-hermes-gateway-386gpt.service}
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+provider_config=${HERMES_PROVIDER_CONFIG:-$script_dir/hermes-unsloth.yaml}
+unsloth_api_key_file=${UNSLOTH_API_KEY_FILE:-}
 profile_dir=/home/grimlock/.hermes/profiles/$profile_name
 hermes_python=/home/grimlock/.hermes/hermes-agent/venv/bin/python
 
@@ -17,6 +20,10 @@ test "$(id -u)" -eq 0 || { echo "this script must run as root" >&2; exit 1; }
 case "$prefix:$etcd_env_file:$etcd_ssh_host" in
     *[!A-Za-z0-9_./:-]*) echo "unsafe etcd configuration value" >&2; exit 1 ;;
 esac
+case "$profile_name" in
+    ''|*[!a-z0-9_-]*) echo "unsafe Hermes profile name" >&2; exit 1 ;;
+esac
+test -r "$provider_config" || { echo "missing Hermes provider config: $provider_config" >&2; exit 1; }
 
 if [ -r "$etcd_env_file" ]; then
     set -a
@@ -78,23 +85,41 @@ temp_dir=$(mktemp -d)
 trap 'rm -rf "$temp_dir"' EXIT HUP INT TERM
 
 umask 077
-etcd_get "$prefix/hermes-config" > "$temp_dir/provider.yaml"
-if [ ! -s "$temp_dir/provider.yaml" ]; then
-    echo "missing required etcd key: $prefix/hermes-config" >&2
-    exit 1
+if [ -n "$unsloth_api_key_file" ]; then
+    unsloth_api_key=$(cat "$unsloth_api_key_file")
+else
+    unsloth_api_key=$(etcd_get "$prefix/unsloth-api-key")
 fi
+case "$unsloth_api_key" in
+    *[!A-Za-z0-9._-]*|'') echo "provide UNSLOTH_API_KEY_FILE or $prefix/unsloth-api-key in etcd" >&2; exit 1 ;;
+esac
+cp "$provider_config" "$temp_dir/profile.yaml"
+printf 'UNSLOTH_API_KEY=%s\n' "$unsloth_api_key" > "$temp_dir/unsloth.env"
 
-awk '
-    /^[[:space:]]+base_url:[[:space:]]/ {
-        count++
-        sub(/base_url:.*/, "base_url: http://127.0.0.1:30001/v1")
-    }
-    { print }
-    END { if (count != 1) exit 42 }
-' "$temp_dir/provider.yaml" > "$temp_dir/profile.yaml" || {
-    echo "expected exactly one provider base_url in $prefix/hermes-config" >&2
-    exit 1
-}
+# Verify the exact model before changing the running Hermes profile. Read the
+# credential from a private file so it never appears in process arguments.
+"$hermes_python" - "$temp_dir/profile.yaml" "$temp_dir/unsloth.env" <<'PY'
+import json
+import sys
+import urllib.request
+import yaml
+
+with open(sys.argv[1]) as source:
+    config = yaml.safe_load(source)
+provider = next(p for p in config["custom_providers"] if p["name"] == config["model"]["provider"])
+with open(sys.argv[2]) as source:
+    key = source.read().strip().split("=", 1)[1]
+request = urllib.request.Request(provider["base_url"].rstrip("/") + "/models",
+    headers={"Authorization": "Bearer " + key})
+with urllib.request.urlopen(request, timeout=15) as response:
+    models = json.load(response)["data"]
+model = next((m for m in models if m["id"] == config["model"]["default"]), None)
+if not model or not model.get("loaded") or model.get("quant") != "Q4_K_P":
+    raise SystemExit("Load the configured Gemma Q4_K_P model in Unsloth before switching Hermes")
+if model.get("context_length", 0) < provider["context_length"]:
+    raise SystemExit("Unsloth context is smaller than the configured Hermes context length")
+print("Verified loaded Unsloth Gemma Q4_K_P model and context capacity.")
+PY
 
 printf '%s\n' \
     'API_SERVER_ENABLED=true' \
@@ -104,7 +129,7 @@ printf '%s\n' \
 
 printf '%s\n' \
     '[Unit]' \
-    'Description=Hermes Agent Gateway - 386GPT profile' \
+    "Description=Hermes Agent Gateway - 386GPT ($profile_name)" \
     'After=network-online.target tailscaled.service' \
     'Wants=network-online.target tailscaled.service' \
     'StartLimitIntervalSec=0' \
@@ -143,10 +168,24 @@ install -m 0640 -o root -g grimlock "$temp_dir/386gpt-api.env" "$environment_fil
 if [ ! -d "$profile_dir" ]; then
     sudo -u grimlock env HOME=/home/grimlock "$hermes_python" -m hermes_cli.main \
         profile create "$profile_name" --no-alias \
-        --description "Private Hermes Agent profile for the 386GPT web chat."
+        --description "386GPT agent using Unsloth's local Gemma-4 Q4_K_P model on crash."
 fi
 install -m 0600 -o grimlock -g grimlock "$temp_dir/profile.yaml" "$profile_dir/config.yaml"
+# Preserve any unrelated profile environment entries on subsequent runs.
+"$hermes_python" - "$profile_dir/.env" "$temp_dir/unsloth.env" <<'PY'
+import os
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+lines = path.read_text().splitlines() if path.exists() else []
+lines = [line for line in lines if not line.strip().startswith(("UNSLOTH_API_KEY=", "export UNSLOTH_API_KEY="))]
+path.write_text("\n".join(lines + [Path(sys.argv[2]).read_text().strip()]) + "\n")
+os.chmod(path, 0o600)
+PY
+chown grimlock:grimlock "$profile_dir/.env"
 install -m 0644 -o root -g root "$temp_dir/hermes-gateway-386gpt.service" "/etc/systemd/system/$service_name"
+install -m 0640 -o root -g grimlock "$temp_dir/hermes.yaml" "$runtime_dir/386gpt-client.yaml"
+printf '%s' "$unsloth_api_key" | etcd_put "$prefix/unsloth-api-key" >/dev/null
 etcd_put "$prefix/hermes-agent-config" < "$temp_dir/hermes.yaml" >/dev/null
 
 systemctl daemon-reload
