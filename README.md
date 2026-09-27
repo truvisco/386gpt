@@ -46,9 +46,11 @@ Frontend environment variables:
 
 - `VITE_API_URL`: backend HTTP origin, default `http://localhost:8080`
 
-The backend uses Hermes's authenticated run API. It durably stores submissions before sending them, retries with the same idempotency key, and reconciles run status and tool transcripts after disconnects or backend restarts. Each conversation has a fixed runtime and a durable Hermes session. Instructions are supplied on every run.
+386GPT is a messaging client of the Hermes gateway. The `386gpt-channel` platform plugin accepts authenticated messages and dispatches ordinary `MessageEvent`s through Hermes's normal gateway handler—the same lifecycle used by messaging platforms. No Telegram account, token, library, or service is required. The profile owns the model, provider, system prompt, tools, memory, skills, and command handling. 386GPT does not create an API agent or inject agent instructions.
 
-The conversation panel shows the actual tool host, working directory, skills, tool arguments and results, pending approvals, and stop/update controls. Agent completion is distinct from successful tool execution. Only choices offered by Hermes appear in approval prompts. Credentials stay on the backend; reasoning text is not exposed as execution evidence. Conversation URLs use `/conversations/<id>` and survive reloads.
+The transport retains the app's durable request/status interface, but `/v1/runs` on port 8644 is a messaging delivery receipt. It never invokes the standalone API agent path. Native commands such as `/status`, `/context`, `/new`, `/stop`, and `/sethome` go to Hermes. Updates queue through the normal messaging guards, and approval choices resolve Hermes's pending approval. Replies and edits are persisted by the channel; disconnecting the browser does not cancel a message. Interrupted deliveries are never automatically re-executed after a gateway restart.
+
+The conversation panel shows the real host and gateway profile, skills, tool arguments/results, approvals, and stop/update controls. Agent completion is distinct from successful tool execution. Conversation URLs use `/conversations/<id>`. Existing app transcripts remain visible; switching from the former API creates a native gateway session for each conversation rather than importing a different profile's private history.
 
 To check agent behavior against a running backend and the real Hermes host:
 
@@ -76,11 +78,27 @@ Local development runs tools on book14 while inference remains on crash's Unslot
 sh deploy/development/configure-hermes-client.sh
 ```
 
-This prepares a dedicated pinned Hermes checkout and the `386gpt-local` profile, installs the loopback LaunchAgent `co.truvis.386gpt.hermes` on port 8643, and writes owner-only `~/.hermes/386gpt.yaml`. Restart `go tool air` afterward. The existing default Hermes profile is unaffected. Tailscale access to crash's Unsloth port 8888 is required. `HERMES_SSH_HOST` and `HERMES_CONFIG` override connection installation defaults.
+This prepares a dedicated pinned Hermes checkout and the `386gpt-local` profile, installs the loopback LaunchAgent `co.truvis.386gpt.hermes` with its messaging channel on port 8644, and writes owner-only `~/.hermes/386gpt.yaml`. Restart `go tool air` afterward. The existing default Hermes profile is unaffected. Tailscale access to crash's Unsloth port 8888 is required. `HERMES_SSH_HOST` and `HERMES_CONFIG` override connection installation defaults.
 
 The private development configuration contains `default_runtime: local` and a `runtimes` mapping with `local` and `crash` entries; each entry has `base_url`, `api_key`, and `session_key`. Production retains the legacy `agent` mapping, which selects crash. Never move existing thread bindings between hosts implicitly.
 
-Both dedicated runtimes pin Hermes revision `498abb677ec39ea3ae9f8f5ed60e7def6bc47e70`. The reviewed compatibility patch repairs skill discovery, reports host metadata, redacts transcript secrets, and keeps terminal state scoped to the conversation while approval authority stays scoped to the run. Upgrading that pin requires reviewing and validating the patch again. On crash, stage the scripts together, run `prepare-hermes-runtime.sh` as grimlock, then run `activate-hermes-runtime.sh` as root. The latter backs up Hermes state and switches only `hermes-gateway-386gpt.service`. Release installation backs up the app database before migration.
+The gateway channel is installed into the existing profile without replacing model/provider settings:
+
+```sh
+# On crash, using the corrected 386gpt profile:
+~/.hermes/386gpt-runtime/venv/bin/python deploy/hermes-gateway/install-channel.py \
+  --profile 386gpt --host 100.74.13.43 --client /etc/hermes-agent/386gpt-client.yaml
+sudo systemctl restart hermes-gateway-386gpt.service
+```
+
+The dedicated runtime pins Hermes revision `498abb677ec39ea3ae9f8f5ed60e7def6bc47e70`. The small existing compatibility patch supplies skill discovery and runtime metadata. The gateway adapter lives outside Hermes core in the profile's `plugins/386gpt-channel` directory. Run its isolated transport tests with the Hermes venv and `PYTHONPATH` pointing to that checkout:
+
+```sh
+PYTHONPATH="$HOME/.hermes/386gpt-runtime" \
+  "$HOME/.hermes/386gpt-runtime/venv/bin/python" deploy/hermes-gateway/test_channel.py
+```
+
+Connection files point to port 8644; port 8643 remains the old API and is rejected for new app submissions. `switch-client.py CONNECTION_FILE` updates the port without replacing credentials. Jenkins reads `/prod/386gpt/hermes-agent-config`; `deploy/jenkins/update-hermes-base-url.sh` updates that connection. Provider credentials stay entirely within Hermes. The profile-preserving local setup also keeps existing model and provider-key changes.
 
 Validation: `go test ./...` and `go vet ./...` in backend; `npm run lint`, `npm run build`, and `npm run test:e2e` in frontend. The browser test expects Vite on port 15173 (override `UI_TEST_ORIGIN`) and mocks the API to exercise recovery and controls. Run `npx playwright install chromium` if the browser is missing.
 
@@ -90,14 +108,11 @@ The `master` branch deploys through the `386GPT` Jenkins multibranch job. Jenkin
 
 The production frontend is deployed as a Cloudflare Worker with static assets at `https://386gpt.truvis.co`. The production API is `https://api-386gpt.truvis.co`; it runs as the `386gpt.service` systemd unit on `127.0.0.1:20386`, with nginx and Cloudflare in front. SQLite data is retained outside individual releases at `/var/www/vhosts/api-386gpt.truvis.co/shared/data/386gpt.db`.
 
-Hermes Agent runs on `crash` using the `unsloth` profile and listens only on its
+Hermes Agent runs on `crash` using the user-configured `386gpt` profile and listens only on its
 Tailscale address. The profile uses Unsloth Studio at `http://127.0.0.1:8888/v1`
 with `HauhauCS/Gemma-4-E2B-Uncensored-HauhauCS-Aggressive`, quantization `Q4_K_P`.
 Hermes handles tools, sessions, and memory; Unsloth supplies model inference.
-The profile reserves a 65,536-token context and caps generated output at 4,096
-tokens, with thinking disabled. Background Hermes title generation is disabled
-because 386GPT already titles its threads. Its configuration is in
-`deploy/production/hermes-unsloth.yaml`.
+The running profile's settings are authoritative. `hermes-unsloth.yaml` is a historical bootstrap template; the messaging-channel installer does not overwrite a profile with it.
 
 Unsloth runs as `unsloth.service` on crash, enabled at boot with automatic
 restart. Each service start loads Gemma Q4_K_P with a 66,304-token context and
@@ -124,32 +139,11 @@ journalctl -u unsloth.service -f
 Hermes stays running during recovery. Changing the loaded model in Studio is
 temporary: the next service start restores this preferred model.
 
-Copy both files from `deploy/production/configure-hermes-agent.sh` and
-`deploy/production/hermes-unsloth.yaml` to the same directory on crash. For the
-first setup, supply a private file containing a dedicated Unsloth API key:
-
-```sh
-sudo UNSLOTH_API_KEY_FILE=/path/to/private/unsloth-key \
-  sh deploy/production/configure-hermes-agent.sh
-```
-
-Subsequent runs can omit `UNSLOTH_API_KEY_FILE`: the script reuses
-`/prod/386gpt/unsloth-api-key` in etcd. It verifies the loaded model before
-switching Hermes, creates the `unsloth` profile, installs the provider key in its
-private `.env`, and restarts `hermes-gateway-386gpt.service`. It preserves the
-existing `/prod/386gpt/hermes-api-key` and private gateway address, updates
-`/prod/386gpt/hermes-agent-config` for Jenkins, and writes the client connection to
-`/etc/hermes-agent/386gpt-client.yaml`. The old `386gpt` Hermes profile remains
-available separately; a new profile has its own Hermes sessions and memory.
-
-When crash does not have the local etcd environment file, the script reads etcd
-through its non-interactive SSH connection to `brain`; etcd remains bound to
-brain's loopback interface. The public frontend and API must be protected by the
-same Cloudflare Access identity policy before deploying the agent-backed build.
+For an existing corrected profile, use the channel installer above. The older `configure-hermes-agent.sh` bootstraps an `unsloth` profile and changes provider settings; it is not the upgrade path for the user-maintained `386gpt` profile.
 
 ## Stack
 
 - React, TypeScript, and Vite
 - [BOOTSTRA.386](https://github.com/kristopolous/BOOTSTRA.386) v5 theme from the upstream Git repository
-- Go, Gorilla WebSocket, SQLite, and the Hermes Agent session API
+- Go, Gorilla WebSocket, SQLite, and a Hermes messaging gateway platform
 - Air as a pinned Go project tool

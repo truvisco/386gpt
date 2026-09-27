@@ -16,7 +16,7 @@ if (!response.ok) {
 }
 
 const { thread } = await response.json()
-async function checkTurn(content) {
+async function checkTurn(content, statusCommand = false) {
   const websocketOrigin = origin.replace(/^http/, 'ws')
   const socket = new WebSocket(`${websocketOrigin}/ws?thread_id=${encodeURIComponent(thread.id)}`)
   const assistantContent = await new Promise((resolve, reject) => {
@@ -47,17 +47,18 @@ async function checkTurn(content) {
       reject(new Error('WebSocket connection failed'))
     })
   })
-  if (assistantContent.toUpperCase() !== 'OK') {
+  const valid = statusCommand ? assistantContent.includes('Hermes Gateway Status') : assistantContent.trim().split('\n').at(-1).trim().toUpperCase() === 'OK'
+  if (!valid) {
     throw new Error(`unexpected LLM response: ${assistantContent}`)
   }
 }
 
 try {
-  await checkTurn('Reply with the single word OK.')
+  await checkTurn('/status', true)
   // Reopening the same thread exercises Hermes's persisted-model resolution,
   // which can differ from the provider resolution used for a fresh session.
   await checkTurn('Reply again with the single word OK.')
-  console.log('Two-turn WebSocket and Hermes session smoke test passed.')
+  console.log('Native gateway command and model reply smoke test passed.')
 } finally {
   await fetch(`${origin}/api/threads/${encodeURIComponent(thread.id)}`, { method: 'DELETE' })
 }

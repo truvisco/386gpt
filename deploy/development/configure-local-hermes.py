@@ -19,6 +19,7 @@ source = Path(__file__).resolve().parents[1] / "production/hermes-unsloth.yaml"
 if not python.exists():
     raise SystemExit("Run deploy/production/prepare-hermes-runtime.sh first")
 environment = {**os.environ, "PYTHONPATH": str(runtime)}
+existing_profile_config = (profile / "config.yaml").exists()
 if not profile.exists():
     subprocess.run([str(python), "-m", "hermes_cli.main", "profile", "create", "386gpt-local", "--no-alias"], cwd=runtime, env=environment, check=True)
 old = yaml.safe_load(client.read_text()) if client.exists() else yaml.safe_load(subprocess.check_output([
@@ -26,10 +27,13 @@ old = yaml.safe_load(client.read_text()) if client.exists() else yaml.safe_load(
 crash = old.get("runtimes", {}).get("crash") or old["agent"]
 key = old.get("runtimes", {}).get("local", {}).get("api_key") or secrets.token_hex(32)
 unsloth_key = subprocess.check_output(["ssh", "-o", "BatchMode=yes", host, "cat /home/grimlock/.hermes/386gpt-unsloth-api-key"], text=True).strip()
-config = yaml.safe_load(source.read_text())
-config["model"]["base_url"] = "http://100.74.13.43:8888/v1"
-config["custom_providers"][0]["base_url"] = config["model"]["base_url"]
-config["terminal"] = {"backend": "local", "cwd": str(home)}
+if existing_profile_config:
+    config = yaml.safe_load((profile / "config.yaml").read_text())
+else:
+    config = yaml.safe_load(source.read_text())
+    config["model"]["base_url"] = "http://100.74.13.43:8888/v1"
+    config["custom_providers"][0]["base_url"] = config["model"]["base_url"]
+    config["terminal"] = {"backend": "local", "cwd": str(home)}
 def private(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and not path.with_suffix(path.suffix + ".before-runs").exists():
@@ -39,9 +43,16 @@ def private(path, data):
         output.write(data)
     path.chmod(0o600)
 private(profile / "config.yaml", yaml.safe_dump(config).encode())
-private(profile / ".env", f"UNSLOTH_API_KEY={unsloth_key}\nAPI_SERVER_KEY={key}\n".encode())
-local = {"base_url": "http://127.0.0.1:8643", "api_key": key, "session_key": "agent:main:386gpt:dm:owner"}
+existing_env = (profile / ".env").read_text() if (profile / ".env").exists() else ""
+env_lines = [line for line in existing_env.splitlines() if not line.startswith("API_SERVER_KEY=")]
+if not any(line.startswith("UNSLOTH_API_KEY=") for line in env_lines):
+    env_lines.append(f"UNSLOTH_API_KEY={unsloth_key}")
+env_lines.append(f"API_SERVER_KEY={key}")
+private(profile / ".env", ("\n".join(env_lines) + "\n").encode())
+local = {"base_url": "http://127.0.0.1:8644", "api_key": key, "session_key": "agent:main:386gpt:dm:owner"}
+crash["base_url"] = crash["base_url"].replace(":8643", ":8644")
 private(client, yaml.safe_dump({"default_runtime": "local", "runtimes": {"local": local, "crash": crash}}).encode())
+subprocess.run([str(python), str(Path(__file__).resolve().parents[1] / "hermes-gateway/install-channel.py"), "--profile", "386gpt-local", "--client", str(client)], check=True)
 logs = home / "Library/Logs/386gpt-hermes"
 logs.mkdir(parents=True, exist_ok=True)
 label = "co.truvis.386gpt.hermes"
@@ -57,4 +68,4 @@ private(plist, plistlib.dumps({
 domain = f"gui/{os.getuid()}"
 subprocess.run(["launchctl", "bootout", f"{domain}/{label}"], capture_output=True)
 subprocess.run(["launchctl", "bootstrap", domain, str(plist)], check=True)
-print("Local Hermes installed on 127.0.0.1:8643. Existing conversations remain on crash; credentials hidden.")
+print("Local Hermes messaging channel installed on 127.0.0.1:8644. Existing conversations remain on crash; credentials hidden.")

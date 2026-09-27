@@ -48,6 +48,8 @@ print(p)
 
 let thread
 async function turn(content) {
+  const initialEvents = await (await fetch(`${origin}/api/threads/${thread.id}/activity`)).json()
+  const previousCalls = initialEvents.events.filter(e => e.kind === "tool.call").length
   const socket = new WebSocket(`${origin.replace(/^http/, 'ws')}/ws?thread_id=${encodeURIComponent(thread.id)}`)
   let tools = 0
   try {
@@ -75,7 +77,8 @@ async function turn(content) {
       socket.addEventListener('close', () => finish(new Error('WebSocket closed before completion')))
     })
     console.log(reply)
-    if (!tools) throw new Error('Agent replied without executing tools')
+    const evidence = await (await fetch(`${origin}/api/threads/${thread.id}/activity`)).json()
+    if (evidence.events.filter(e => e.kind === 'tool.call').length <= previousCalls) throw new Error('Agent replied without executing tools')
   } finally {
     socket.close()
   }

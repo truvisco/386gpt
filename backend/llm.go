@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -15,14 +14,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
-
-const hermesSystemPrompt = `You are Hermes, the user's working assistant in 386GPT. Use your tools to carry out requested work, including software implementation. An action request asks you to do the work, not give the user commands to run.
-
-Continue through inspection, implementation, verification, and any explicitly requested commit or push. After a tool error, inspect the cause and try a corrected approach within the authorized task. Ask the user only when missing information or authorization actually blocks progress. Respect tool approval decisions; do not bypass them.
-
-For repository work, inspect pwd, git status, and git remote -v before making assumptions. Your terminal may preserve its working directory between calls and turns. Use verified absolute paths or git -C; do not repeatedly cd into a directory you are already inside. Clone each repository separately and verify its origin. Read the relevant source and repository instructions, create the requested branch, make actual code changes, and run appropriate checks before committing. Never treat a feature name as an existing filename or create an empty commit as a substitute for implementation.
-
-Base claims on tool results. A failed command is not a successful change. Verify files, branch, commit, or remote state before reporting them. Distinguish completed work, failed checks, and remaining blockers. Keep the final response concise, but do not stop working merely to keep it short.`
 
 type agentConnection struct {
 	BaseURL    string `yaml:"base_url"`
@@ -49,12 +40,6 @@ type HermesClient struct {
 	apiKey         string
 	sessionKey     string
 	httpClient     *http.Client
-}
-
-type hermesSessionResponse struct {
-	Session struct {
-		ID string `json:"id"`
-	} `json:"session"`
 }
 
 type hermesErrorResponse struct {
@@ -152,136 +137,4 @@ func hermesError(response *http.Response) error {
 		}
 	}
 	return fmt.Errorf("Hermes Agent returned %s: %s", response.Status, strings.TrimSpace(string(detail)))
-}
-
-func (c *HermesClient) ensureSession(ctx context.Context, threadID string) error {
-	request, err := c.newRequest(ctx, threadID, http.MethodPost, "/api/sessions", map[string]any{
-		"id":            hermesSessionID(threadID),
-		"source":        "api_server",
-		"system_prompt": hermesSystemPrompt,
-	})
-	if err != nil {
-		return err
-	}
-	response, err := c.httpClient.Do(request)
-	if err != nil {
-		return fmt.Errorf("contact Hermes Agent: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode == http.StatusConflict {
-		return nil
-	}
-	if response.StatusCode != http.StatusCreated {
-		return hermesError(response)
-	}
-	var created hermesSessionResponse
-	if err := json.NewDecoder(response.Body).Decode(&created); err != nil {
-		return fmt.Errorf("decode Hermes session: %w", err)
-	}
-	if created.Session.ID == "" {
-		return errors.New("Hermes Agent created a session without an ID")
-	}
-	return nil
-}
-
-func (c *HermesClient) Stream(ctx context.Context, threadID, input string, onChunk func(string), onActivity func(HermesActivity)) (string, error) {
-	if err := c.ensureSession(ctx, threadID); err != nil {
-		return "", err
-	}
-	request, err := c.newRequest(ctx, threadID, http.MethodPost, "/api/sessions/"+hermesSessionID(threadID)+"/chat/stream", map[string]string{
-		"message": input,
-		// Hermes stores the session's system_prompt as metadata, but this chat
-		// route takes runtime instructions from each request's system_message.
-		// Send it on every turn, including sessions created before this version.
-		"system_message": hermesSystemPrompt,
-	})
-	if err != nil {
-		return "", err
-	}
-	request.Header.Set("Accept", "text/event-stream")
-	response, err := c.httpClient.Do(request)
-	if err != nil {
-		return "", fmt.Errorf("contact Hermes Agent: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return "", hermesError(response)
-	}
-
-	var assembled, completed strings.Builder
-	eventName := "message"
-	dataLines := make([]string, 0, 1)
-	processEvent := func() error {
-		if len(dataLines) == 0 {
-			eventName = "message"
-			return nil
-		}
-		data := strings.Join(dataLines, "\n")
-		dataLines = dataLines[:0]
-		var payload struct {
-			Delta    string `json:"delta"`
-			Content  string `json:"content"`
-			Message  any    `json:"message"`
-			ToolName string `json:"tool_name"`
-			Preview  string `json:"preview"`
-		}
-		if err := json.Unmarshal([]byte(data), &payload); err != nil {
-			return fmt.Errorf("decode Hermes %s event: %w", eventName, err)
-		}
-		switch eventName {
-		case "assistant.delta":
-			if payload.Delta != "" {
-				assembled.WriteString(payload.Delta)
-				onChunk(payload.Delta)
-			}
-		case "assistant.completed":
-			completed.Reset()
-			completed.WriteString(payload.Content)
-		case "tool.started", "tool.completed", "tool.failed", "tool.progress":
-			onActivity(HermesActivity{State: strings.TrimPrefix(eventName, "tool."), Tool: payload.ToolName, Detail: payload.Preview})
-		case "error":
-			message, _ := payload.Message.(string)
-			if message == "" {
-				message = "Hermes Agent run failed"
-			}
-			return errors.New(message)
-		}
-		eventName = "message"
-		return nil
-	}
-
-	scanner := bufio.NewScanner(response.Body)
-	scanner.Buffer(make([]byte, 64*1024), 2*1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			if err := processEvent(); err != nil {
-				return assembled.String(), err
-			}
-			continue
-		}
-		if strings.HasPrefix(line, "event:") {
-			eventName = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
-		}
-		if strings.HasPrefix(line, "data:") {
-			dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return assembled.String(), fmt.Errorf("read Hermes Agent stream: %w", err)
-	}
-	if err := processEvent(); err != nil {
-		return assembled.String(), err
-	}
-	final := completed.String()
-	if final == "" {
-		final = assembled.String()
-	}
-	if final == "" {
-		return "", errors.New("Hermes Agent returned an empty response")
-	}
-	if suffix := strings.TrimPrefix(final, assembled.String()); suffix != final && suffix != "" {
-		onChunk(suffix)
-	}
-	return final, nil
 }

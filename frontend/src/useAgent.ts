@@ -4,7 +4,7 @@ export const API_BASE = (import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 export type Run = { id: string; threadId: string; status: string; output?: string; error?: string; pendingSteer?: unknown; approval?: { request_id: string; command?: string; description?: string; choices: string[] } }
 export type Activity = { seq: number; kind: string; runId: string; createdAt: string; data: Record<string, unknown> }
 export type Skill = { name: string; description: string }
-export type Runtime = { id?: string; hostname?: string; os?: string; home?: string; cwd?: string; provider: string; model: string; healthy?: boolean; error?: string }
+export type Runtime = { profile?: string; transport?: string; id?: string; hostname?: string; os?: string; home?: string; cwd?: string; provider: string; model: string; healthy?: boolean; error?: string }
 export const isActive = (run: Run | null) => !!run && ['submitting', 'queued', 'running', 'waiting_for_approval', 'stopping'].includes(run.status)
 
 export async function agentRequest<T>(path: string, options?: RequestInit): Promise<T> {

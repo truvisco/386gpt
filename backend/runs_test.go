@@ -106,13 +106,15 @@ func TestRunLostAcceptanceAndEvidence(t *testing.T) {
 	var firstBody string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/v1/capabilities":
+			fmt.Fprint(w, `{"runtime":{"transport":"messaging_gateway"}}`)
 		case r.URL.Path == "/v1/runs" && r.Method == "POST":
 			var body map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Error(err)
 			}
-			if body["instructions"] != hermesSystemPrompt {
-				t.Error("instructions omitted")
+			if _, overridden := body["instructions"]; overridden {
+				t.Error("client must not override gateway profile instructions")
 			}
 			if r.Header.Get("Idempotency-Key") != "request-live" {
 				t.Error("missing stable idempotency key")

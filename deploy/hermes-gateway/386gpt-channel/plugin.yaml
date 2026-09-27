@@ -1,0 +1,4 @@
+name: 386gpt-channel
+kind: platform
+version: 1.0.0
+description: Authenticated 386GPT messaging transport for the Hermes gateway.

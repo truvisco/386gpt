@@ -38,11 +38,11 @@ umask 077
 etcdctl --command-timeout=10s \
     --endpoints="$endpoints" \
     --user="$authentication" \
-    get "$prefix/hermes-config" \
+    get "$prefix/hermes-agent-config" \
     --print-value-only > "$source_file"
 
 if [ ! -s "$source_file" ]; then
-    echo "missing required etcd key: $prefix/hermes-config" >&2
+    echo "missing required etcd key: $prefix/hermes-agent-config" >&2
     exit 1
 fi
 
@@ -61,6 +61,6 @@ awk -v url="$new_base_url" '
 etcdctl --command-timeout=10s \
     --endpoints="$endpoints" \
     --user="$authentication" \
-    put "$prefix/hermes-config" < "$updated_file" >/dev/null
+    put "$prefix/hermes-agent-config" < "$updated_file" >/dev/null
 
-echo "Updated the Hermes base URL in $prefix/hermes-config (credentials hidden)."
+echo "Updated the Hermes base URL in $prefix/hermes-agent-config (credentials hidden)."

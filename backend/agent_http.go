@@ -87,6 +87,19 @@ func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	// Like a messaging client, receive gateway deliveries even after the turn ends.
+	if len(runs) > 0 && !runs[0].active() && runs[0].UpstreamID != "" {
+		latest := &runs[0]
+		if c, e := s.llm.endpoint(latest.RuntimeID); e == nil {
+			if state, e := c.json(r.Context(), latest.ThreadID, "GET", "/v1/runs/"+url.PathEscape(latest.UpstreamID), nil, ""); e == nil {
+				if output := c.redact(field(state, "output")); output != "" && output != latest.Output {
+					if s.store.refreshReply(latest.ID, output) == nil {
+						latest.Output = output
+					}
+				}
+			}
+		}
+	}
 	writeJSON(w, 200, map[string]any{"runs": runs})
 }
 func (s *Server) activity(w http.ResponseWriter, r *http.Request) {

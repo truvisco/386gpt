@@ -21,7 +21,7 @@ export function AgentPanel({ run, events, runtime, skills, selected, onSelect, o
   let workingDirectory = runtime.cwd
   if (cwd) { try { workingDirectory = JSON.parse(String(cwd.data.result)).cwd ?? workingDirectory } catch { /* Keep runtime default. */ } }
   return <section className="agent-panel" aria-label="Agent activity">
-    <div className="agent-runtime">TOOLS: {runtime.hostname ?? runtime.id ?? 'UNKNOWN'} · {runtime.os ?? ''} · {runtime.healthy === undefined ? 'CONNECTING' : runtime.healthy ? 'CONNECTED' : 'OFFLINE'}{workingDirectory && <span>WORKDIR: {workingDirectory}</span>}</div>
+    <div className="agent-runtime">TOOLS: {runtime.hostname ?? runtime.id ?? 'UNKNOWN'} · {runtime.os ?? ''} · {runtime.healthy === undefined ? 'CONNECTING' : runtime.healthy ? 'CONNECTED' : 'OFFLINE'}{runtime.transport === "messaging_gateway" && <span>GATEWAY PROFILE: {runtime.profile}</span>}{workingDirectory && <span>WORKDIR: {workingDirectory}</span>}</div>
     {error && <div role="alert">{error}</div>}
     {runtime.error && <div role="alert">{runtime.error}</div>}
     {run && <div className="agent-run-status">{run.status === 'completed' ? 'AGENT FINISHED — inspect tool results below' : run.status.toUpperCase().replaceAll('_', ' ')}{isActive(run) && <button onClick={() => onControl('stop')}>STOP</button>}{run.error && <p role="alert">{run.error}</p>}{run.pendingSteer != null && <pre>Undelivered update: {display(run.pendingSteer)}</pre>}</div>}

@@ -215,3 +215,20 @@ func (s *Store) sessionID(thread string) (string, error) {
 	}
 	return id, err
 }
+
+// Native messaging platforms can deliver notifications after a turn settles.
+// Refresh only the reply, never stale session/status fields from an earlier poll.
+func (s *Store) refreshReply(id, output string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(`UPDATE runs SET snapshot=json_set(snapshot,'$.output',?,'$.updatedAt',?) WHERE id=? AND status NOT IN ('submitting','queued','running','waiting_for_approval','stopping')`, output, nowUTC(), id); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`INSERT INTO messages SELECT id || '-assistant',thread_id,'assistant',?,? FROM runs WHERE id=? AND status NOT IN ('submitting','queued','running','waiting_for_approval','stopping') ON CONFLICT(id) DO UPDATE SET content=excluded.content`, output, nowUTC(), id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}

@@ -106,7 +106,15 @@ func (s *Server) submit(ctx context.Context, thread, id, input string, skills []
 	if err != nil {
 		return AgentRun{}, err
 	}
-	instructions := hermesSystemPrompt
+	capabilities, err := c.json(ctx, thread, "GET", "/v1/capabilities", nil, "")
+	if err != nil {
+		return AgentRun{}, err
+	}
+	var runtime map[string]json.RawMessage
+	_ = json.Unmarshal(capabilities["runtime"], &runtime)
+	if field(runtime, "transport") != "messaging_gateway" {
+		return AgentRun{}, errors.New("configure the 386GPT messaging gateway channel; the standalone agent API is not supported")
+	}
 	if len(skills) > 0 {
 		catalog, err := c.json(ctx, thread, "GET", "/v1/skills", nil, "")
 		if err != nil {
@@ -127,14 +135,12 @@ func (s *Server) submit(ctx context.Context, thread, id, input string, skills []
 				return AgentRun{}, fmt.Errorf("unknown or unavailable skill %q", skill)
 			}
 		}
-		names, _ := json.Marshal(skills)
-		instructions += "\nThe user selected these skills: " + string(names) + ". Load them with skill_view and follow their instructions for this task."
 	}
 	session, err := s.store.sessionID(thread)
 	if err != nil {
 		return AgentRun{}, err
 	}
-	body, _ := json.Marshal(map[string]any{"input": input, "session_id": session, "instructions": instructions})
+	body, _ := json.Marshal(map[string]any{"input": input, "skills": skills})
 	r := AgentRun{ID: id, ThreadID: thread, RuntimeID: t.RuntimeID, SessionID: session, Input: input, Skills: skills, Status: "submitting", CreatedAt: nowUTC(), Request: string(body)}
 	r.UpdatedAt = r.CreatedAt
 	r, created, err := s.store.reserveRun(r)
