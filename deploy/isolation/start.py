@@ -1,4 +1,4 @@
-"""Initialize only writable state; configuration and executable plugin stay read-only."""
+"""Initialize account state from the image and read-only configuration mounts."""
 import os
 from pathlib import Path
 for directory in ('/state/home', '/state/profile', '/state/profile/plugins', '/state/profile/cache'):

@@ -30,6 +30,7 @@ type googleClaims struct {
 	AuthorizedParty string `json:"azp"`
 }
 type googleAuth struct {
+	onLogin                                                              func(accountIdentity)
 	db                                                                   *sql.DB
 	clientID, clientSecret, origin, callback, sessionCookie, stateCookie string
 	secure                                                               bool
@@ -192,6 +193,9 @@ func (a *googleAuth) callbackHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "Login unavailable", 503)
 		return
+	}
+	if a.onLogin != nil {
+		a.onLogin(accountIdentity{ID: identity, Email: c.Email})
 	}
 	a.cookie(w, a.sessionCookie, session, 8*3600)
 	http.Redirect(w, r, a.origin+"/", 303)

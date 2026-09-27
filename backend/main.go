@@ -52,6 +52,7 @@ func main() {
 		auth, authErr := newGoogleAuth(store.db, googleFile, envOr("PUBLIC_ORIGIN", "https://386gpt.truvis.co"))
 		err = authErr
 		if err == nil {
+			auth.onLogin = app.signedIn
 			handler = auth.protect(cors(app))
 		}
 	} else {

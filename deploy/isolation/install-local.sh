@@ -17,4 +17,5 @@ if ! grep -q '^HERMES_STATE_VOLUME=' "$settings/compose.env"; then
  printf '\nHERMES_STATE_VOLUME=386gpt-isolated-migrated_state\n' >> "$settings/compose.env"
 fi
 "$python" deploy/isolation/update-client.py "$HOME/.hermes/386gpt.yaml" "$settings/gateway.key" --runtime local --url http://127.0.0.1:8644
+python3 deploy/isolation/workspace.py --project 386gpt-isolated --environment "$settings/compose.env" --workspace "$settings/workspace"
 python3 deploy/isolation/install-local-supervisor.py "$settings/compose.env"

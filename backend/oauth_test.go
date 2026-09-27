@@ -67,6 +67,13 @@ func completeLogin(a *googleAuth, q url.Values, cookie *http.Cookie) *httptest.R
 }
 func TestGoogleOAuthSessionAndLogout(t *testing.T) {
 	a, key := testGoogleAuth(t)
+	notified := 0
+	a.onLogin = func(id accountIdentity) {
+		notified++
+		if id.ID != identityID("https://accounts.google.com", "user", "google-user") {
+			t.Error("wrong login account")
+		}
+	}
 	q, cookie := beginLogin(t, a)
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.ParseForm()
@@ -101,6 +108,9 @@ func TestGoogleOAuthSessionAndLogout(t *testing.T) {
 	}
 	if w := completeLogin(a, q, cookie); w.Code != 400 {
 		t.Fatal("callback replay accepted")
+	}
+	if notified != 1 {
+		t.Fatal("valid login must trigger exactly one environment check", notified)
 	}
 	handler := a.protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Context().Value(identityKey{}).(accountIdentity)

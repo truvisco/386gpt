@@ -28,6 +28,8 @@ type accountSlot struct {
 	starting bool
 	err      error
 	retryAt  time.Time
+	refresh  uint64
+	checked  uint64
 }
 type accountManager struct {
 	mu               sync.Mutex
@@ -57,7 +59,7 @@ func newAccountManager(store *Store, legacy *HermesClient, directory, owner stri
 	}
 	defer rows.Close()
 	for rows.Next() {
-		slot := &accountSlot{}
+		slot := &accountSlot{refresh: 1}
 		if err := rows.Scan(&slot.identity.ID, &slot.identity.Email, &slot.identity.Service, &slot.legacy); err != nil {
 			cancel()
 			return nil, err
@@ -80,20 +82,26 @@ func (m *accountManager) recover() {
 
 // start is called with m.mu held. Provisioning never holds that lock.
 func (m *accountManager) start(slot *accountSlot) {
-	if slot.starting || slot.app != nil || m.ctx.Err() != nil || time.Now().Before(slot.retryAt) {
+	if slot.starting || (slot.app != nil && slot.checked == slot.refresh) || m.ctx.Err() != nil || time.Now().Before(slot.retryAt) {
 		return
 	}
 	slot.starting = true
+	revision, existing := slot.refresh, slot.app
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
 		llm := m.legacy
 		var err error
-		if !slot.legacy {
+		if slot.legacy {
+			_, err = m.provision(m.ctx, "owner")
+		} else {
 			llm, err = m.provision(m.ctx, slot.identity.ID)
 		}
+		if err == nil && existing != nil && !slot.legacy && (existing.llm.baseURL != llm.baseURL || existing.llm.apiKey != llm.apiKey || existing.llm.sessionKey != llm.sessionKey) {
+			err = errors.New("account gateway connection changed; API restart required")
+		}
 		var store *Store
-		if err == nil {
+		if err == nil && existing == nil {
 			if slot.legacy {
 				store = m.registry
 			} else {
@@ -103,8 +111,8 @@ func (m *accountManager) start(slot *accountSlot) {
 				}
 			}
 		}
-		var app *Server
-		if err == nil {
+		app := existing
+		if err == nil && app == nil {
 			app = newServer(store, llm)
 			app.recoverRuns()
 		}
@@ -117,6 +125,8 @@ func (m *accountManager) start(slot *accountSlot) {
 			slog.Error("prepare account environment", "account", slot.identity.ID, "error", err)
 			return
 		}
+		slot.retryAt = time.Time{}
+		slot.checked = revision
 		slot.app = app
 		slot.handler = app.routes()
 	}()
@@ -138,9 +148,24 @@ func (m *accountManager) slot(identity accountIdentity) (*accountSlot, error) {
 	if _, err := m.registry.db.Exec(`INSERT INTO accounts(id,email,service,legacy) VALUES(?,?,?,?)`, identity.ID, identity.Email, identity.Service, legacy); err != nil {
 		return nil, err
 	}
-	slot := &accountSlot{identity: identity, legacy: legacy}
+	slot := &accountSlot{identity: identity, legacy: legacy, refresh: 1}
 	m.slots[identity.ID] = slot
 	return slot, nil
+}
+
+// Every successful sign-in invalidates the cached image check, including the
+// migrated owner's environment. The UI waits until Compose reports it healthy.
+func (m *accountManager) signedIn(identity accountIdentity) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	slot, err := m.slot(identity)
+	if err != nil {
+		slog.Error("schedule account image check", "account", identity.ID, "error", err)
+		return
+	}
+	slot.refresh++
+	slot.retryAt = time.Time{}
+	m.start(slot)
 }
 func (m *accountManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/health" {
@@ -167,6 +192,9 @@ func (m *accountManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	m.start(slot)
 	handler := slot.handler
+	if slot.starting || slot.checked != slot.refresh || slot.err != nil {
+		handler = nil
+	}
 	failed := slot.err != nil && !slot.starting
 	m.mu.Unlock()
 	if r.URL.Path == "/api/account" && r.Method == "GET" {
@@ -187,7 +215,9 @@ func (m *accountManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	handler.ServeHTTP(w, r)
 }
 func (m *accountManager) close() {
+	m.mu.Lock()
 	m.cancel()
+	m.mu.Unlock()
 	m.wg.Wait()
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -221,7 +251,11 @@ func accountProvisioner(configPath string) (func(context.Context, string) (*Herm
 	}
 	client := &http.Client{Timeout: 150 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	return func(ctx context.Context, id string) (*HermesClient, error) {
-		req, err := http.NewRequestWithContext(ctx, "PUT", strings.TrimRight(c.BaseURL, "/")+"/v1/accounts/"+id, nil)
+		path := "/v1/accounts/" + id
+		if id == "owner" {
+			path = "/v1/owner"
+		}
+		req, err := http.NewRequestWithContext(ctx, "PUT", strings.TrimRight(c.BaseURL, "/")+path, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -233,6 +267,9 @@ func accountProvisioner(configPath string) (func(context.Context, string) (*Herm
 		defer res.Body.Close()
 		if res.StatusCode != 200 {
 			return nil, fmt.Errorf("account provisioner returned HTTP %d", res.StatusCode)
+		}
+		if id == "owner" {
+			return nil, nil
 		}
 		var connection struct {
 			ID         string `json:"account_id"`
