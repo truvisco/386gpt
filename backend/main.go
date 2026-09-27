@@ -36,14 +36,32 @@ func main() {
 	}
 	defer store.Close()
 
-	app := newServer(store, llm)
+	provision, err := accountProvisioner(hermesPath)
+	if err != nil {
+		slog.Error("configure account environments", "error", err)
+		os.Exit(1)
+	}
+	app, err := newAccountManager(store, llm, filepath.Join(filepath.Dir(databasePath), "accounts"), envOr("ACCESS_OWNER_EMAIL", "mauriciootta@gmail.com"), provision)
+	if err != nil {
+		slog.Error("configure accounts", "error", err)
+		os.Exit(1)
+	}
 	defer app.close()
-	handler, err := authentication(address, app.routes())
+	var handler http.Handler
+	if googleFile := os.Getenv("GOOGLE_OAUTH_CLIENT_FILE"); googleFile != "" {
+		auth, authErr := newGoogleAuth(store.db, googleFile, envOr("PUBLIC_ORIGIN", "https://386gpt.truvis.co"))
+		err = authErr
+		if err == nil {
+			handler = auth.protect(cors(app))
+		}
+	} else {
+		handler, err = authentication(address, cors(app))
+	}
 	if err != nil {
 		slog.Error("configure authentication", "error", err)
 		os.Exit(1)
 	}
-	app.recoverRuns()
+	app.recover()
 	server := &http.Server{
 		Addr:              address,
 		Handler:           handler,

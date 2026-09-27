@@ -1,0 +1,5 @@
+# Private Google OAuth downloads
+client_secret_*.json
+
+__pycache__/
+*.pyc

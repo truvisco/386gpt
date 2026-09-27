@@ -106,6 +106,25 @@ func (s *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 		timer := time.AfterFunc(time.Until(expiry), func() { _ = conn.Close() })
 		defer timer.Stop()
 	}
+	if check, ok := r.Context().Value(sessionCheckKey{}).(func() bool); ok {
+		done := make(chan struct{})
+		defer close(done)
+		go func() {
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-ticker.C:
+					if !check() {
+						_ = conn.Close()
+						return
+					}
+				}
+			}
+		}()
+	}
 	client := &Client{threadID: threadID, conn: conn, send: make(chan []byte, 32)}
 	s.hub.register(client)
 	go client.writeLoop()

@@ -139,3 +139,7 @@ button { border: 0; }
 .agent-skills small { display: block; padding-left: 24px; }
 .agent-evidence { max-height: 420px; overflow: auto; }
 .tool-record { padding-left: 10px; border-left: 1px solid var(--line); margin: 3px 0; }
+
+.account-gate { min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 2rem; text-align: center; }
+.account-summary { display: flex; flex-direction: column; gap: .5rem; margin-bottom: 1rem; font-size: .75rem; }
+.account-summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

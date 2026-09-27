@@ -8,6 +8,15 @@ if (!origin) {
   process.exit(2)
 }
 
+const deadline = Date.now()+180_000
+while (true) {
+  const response = await fetch(`${origin}/api/account`, { headers: accessHeaders })
+  if (!response.ok) throw new Error(`Account authentication failed: HTTP ${response.status}`)
+  const state = await response.json()
+  if (state.environment === 'ready') break
+  if (Date.now() > deadline) throw new Error('Account environment startup timed out')
+  await new Promise(resolve => setTimeout(resolve, 2000))
+}
 const response = await fetch(`${origin}/api/threads`, {
   method: 'POST',
   headers: { ...accessHeaders, 'Content-Type': 'application/json' },
@@ -44,9 +53,9 @@ async function checkTurn(content, statusCommand = false) {
         reject(new Error(`LLM proxy failed: ${payload.error}`))
       }
     })
-    socket.addEventListener('error', () => {
+    socket.addEventListener('error', (event) => {
       clearTimeout(timeout)
-      reject(new Error('WebSocket connection failed'))
+      reject(new Error(`WebSocket connection failed: ${event.message ?? 'unknown error'}`))
     })
   })
   const valid = statusCommand ? assistantContent.includes('Hermes Gateway Status') : assistantContent.trim().split('\n').at(-1).trim().toUpperCase() === 'OK'

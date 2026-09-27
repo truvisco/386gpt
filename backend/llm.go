@@ -21,7 +21,13 @@ type agentConnection struct {
 	SessionKey string `yaml:"session_key"`
 }
 
+type tenantConnection struct {
+	BaseURL string `yaml:"base_url"`
+	APIKey  string `yaml:"api_key"`
+}
+
 type hermesConfig struct {
+	Tenants        tenantConnection           `yaml:"tenants"`
 	Agent          agentConnection            `yaml:"agent"`
 	DefaultRuntime string                     `yaml:"default_runtime"`
 	Runtimes       map[string]agentConnection `yaml:"runtimes"`

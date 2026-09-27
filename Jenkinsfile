@@ -100,6 +100,7 @@ pipeline {
                 sh '''
                     set +x
                     sh deploy/jenkins/with-cloudflare-env.sh node deploy/cloudflare/ensure-api-dns.mjs api-386gpt.truvis.co web1
+                    sh deploy/jenkins/with-access-env.sh sh deploy/jenkins/with-cloudflare-env.sh node deploy/cloudflare/configure-api-oauth.mjs
                 '''
             }
         }

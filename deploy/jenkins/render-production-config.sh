@@ -61,6 +61,9 @@ import json, re, sys
 from pathlib import Path
 c=json.loads(Path(sys.argv[1]).read_text())
 values={
+ 'GOOGLE_OAUTH_CLIENT_FILE': '/etc/386gpt/google-oauth.json',
+ 'PUBLIC_ORIGIN': 'https://386gpt.truvis.co',
+ 'ACCESS_APP_ID': c['app']['id'],
  'ACCESS_ISSUER': c['issuer'],
  'ACCESS_AUDIENCE': c['app']['aud'],
  'ACCESS_OWNER_EMAIL': 'mauriciootta@gmail.com',
@@ -71,6 +74,15 @@ values={
 for k,v in values.items():
  if not v or not re.fullmatch(r'[A-Za-z0-9@:/._-]+',v): raise SystemExit('Invalid Access setting: '+k)
 Path(sys.argv[2]).write_text(''.join(k+'='+v+'\n' for k,v in values.items()))
-Path(sys.argv[3]).write_text(''.join(k+'='+v+'\n' for k,v in values.items() if k.startswith('ACCESS_')))
+Path(sys.argv[3]).write_text(''.join(k+'='+v+'\n' for k,v in values.items() if k.startswith('ACCESS_') or k.startswith('CF_ACCESS_') or k in ('GOOGLE_OAUTH_CLIENT_FILE','PUBLIC_ORIGIN')))
 ACCESS_PY
 rm -f "$access_json"
+
+etcdctl --command-timeout=10s --endpoints="$endpoints" --user="$authentication" \
+    get "$prefix/google-oauth-client" --print-value-only > "$destination/google-oauth.json"
+python3 - "$destination/google-oauth.json" <<'GOOGLE_PY'
+import json,sys
+c=json.load(open(sys.argv[1]))['web']
+assert c['client_id'] and c['client_secret']
+assert 'https://386gpt.truvis.co/api/callback/google/oauth' in c['redirect_uris']
+GOOGLE_PY

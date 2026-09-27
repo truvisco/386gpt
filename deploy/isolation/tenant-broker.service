@@ -1,0 +1,22 @@
+[Unit]
+Description=386GPT account container provisioner
+Requires=docker.service
+After=docker.service network-online.target tailscaled.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/386gpt-isolation
+ExecStart=/home/grimlock/.hermes/386gpt-runtime/venv/bin/python deploy/isolation/tenant-broker.py --root /var/lib/386gpt-accounts --template /etc/386gpt-isolation --compose deploy/isolation/compose.yaml --key-file /etc/386gpt-isolation/broker.key --bind 100.74.13.43 --upstream http://host.docker.internal:8888
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/386gpt-accounts
+
+[Install]
+WantedBy=multi-user.target

@@ -13,7 +13,7 @@ import (
 func TestAccessAuthentication(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	a := &accessVerifier{issuer: "https://test.cloudflareaccess.com", audience: "app", email: "mauriciootta@gmail.com", service: "ci.access", keys: map[string]*rsa.PublicKey{"test": &key.PublicKey}, fetched: time.Now()}
-	base := accessClaims{RegisteredClaims: jwt.RegisteredClaims{Issuer: a.issuer, Audience: jwt.ClaimStrings{"app"}, ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))}, Email: a.email, Type: "app"}
+	base := accessClaims{RegisteredClaims: jwt.RegisteredClaims{Subject: "owner-subject", Issuer: a.issuer, Audience: jwt.ClaimStrings{"app"}, ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))}, Email: a.email, Type: "app"}
 	cases := []struct {
 		name  string
 		edit  func(*accessClaims)

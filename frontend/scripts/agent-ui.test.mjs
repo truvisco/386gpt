@@ -16,7 +16,8 @@ try {
   await context.route('**/api/**', async route => {
     const req = route.request(), path = new URL(req.url()).pathname, id = path.split('/')[3]
     let data = {}
-    if (path === '/api/runtime') data = { hostname: 'book14', os: 'Darwin', cwd: '/Users/test', healthy: true, model: 'Gemma', provider: 'unsloth' }
+    if (path === '/api/account') data = { account: { id: 'test-account', email: 'test@example.com', service: false }, environment: 'ready' }
+    else if (path === '/api/runtime') data = { hostname: 'book14', os: 'Darwin', cwd: '/Users/test', healthy: true, model: 'Gemma', provider: 'unsloth' }
     else if (path === '/api/skills') data = { data: [{ name: 'coding', description: 'Implement and verify code' }] }
     else if (path === '/api/threads' && req.method() === 'POST') {
       const thread = { ...threads[0], id: 'three', title: 'Conversation three' }; threads.push(thread); data = { thread }

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import jquery from 'jquery'
 import './index.css'
 import App from './App.tsx'
+import { AccountGate } from './AccountGate'
 
 window.$ = window.jQuery = jquery
 void import('bootstra.386/v5.3.1/js/dos.js').catch((error) => {
@@ -12,6 +13,6 @@ void import('bootstra.386/v5.3.1/js/dos.js').catch((error) => {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <AccountGate>{account => <App account={account} />}</AccountGate>
   </StrictMode>,
 )

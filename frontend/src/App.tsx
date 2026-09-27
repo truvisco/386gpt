@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import './App.css'
+import type { Account } from './AccountGate'
 import { AgentPanel } from './AgentPanel'
 import { useAgent, isActive, agentRequest } from './useAgent'
 
@@ -37,7 +38,7 @@ type SocketEvent = {
 }
 
 
-const API_BASE = (import.meta.env.VITE_API_URL ?? 'http://localhost:8080').replace(/\/$/, '')
+const API_BASE = (import.meta.env.VITE_API_URL ?? window.location.origin).replace(/\/$/, '')
 
 function conversationFromURL() {
   return /^\/conversations\/([a-zA-Z0-9_-]+)\/?$/.exec(window.location.pathname)?.[1] ?? null
@@ -92,7 +93,7 @@ function Icon({ name }: { name: 'menu' | 'plus' | 'trash' | 'send' | 'copy' | 's
   return <svg viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>
 }
 
-function App() {
+function App({ account }: { account: Account }) {
   const [threads, setThreads] = useState<Thread[]>([])
   const [activeId, setActiveId] = useState<string | null>(conversationFromURL)
   const [messages, setMessages] = useState<Message[]>([])
@@ -472,10 +473,11 @@ function App() {
         </nav>
 
         <div className="sidebar-footer">
+          <div className="account-summary"><span title={account.email}>{account.email || 'Test account'}</span><button type="button" onClick={async () => { await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST' }); window.location.assign('/') }}>Sign out</button></div>
           <button className={`turbo-button ${turbo ? 'active' : ''}`} type="button" aria-pressed={turbo} onClick={() => setTurbo((current) => !current)}>
             TURBO {turbo ? '×4' : 'OFF'}
           </button>
-          <div className="sidebar-status"><span className={`status-dot ${connected ? 'online' : ''}`} /> {connected ? 'UPLINK ACTIVE' : 'STANDBY'}<br />SQLITE // LOCAL</div>
+          <div className="sidebar-status"><span className={`status-dot ${connected ? 'online' : ''}`} /> {connected ? 'UPLINK ACTIVE' : 'STANDBY'}<br />PRIVATE WORKSPACE</div>
         </div>
       </aside>
 

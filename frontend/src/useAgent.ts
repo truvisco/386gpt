@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-export const API_BASE = (import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? window.location.origin : 'http://localhost:8080')).replace(/\/$/, '')
+export const API_BASE = (import.meta.env.VITE_API_URL ?? window.location.origin).replace(/\/$/, '')
 export type Run = { id: string; threadId: string; status: string; output?: string; error?: string; pendingSteer?: unknown; approval?: { request_id: string; command?: string; description?: string; choices: string[] } }
 export type Activity = { seq: number; kind: string; runId: string; createdAt: string; data: Record<string, unknown> }
 export type Skill = { name: string; description: string }

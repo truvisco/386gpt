@@ -1,4 +1,4 @@
-> **Current security setup:** Hermes uses an isolated non-root Docker runtime on crash and book14. Production requires Cloudflare Access for `mauriciootta@gmail.com`; local development binds to loopback. See [deployment and migration instructions](deploy/isolation/README.md). The previous host-execution installers are disabled.
+> **Current security setup:** Hermes uses an isolated non-root Docker runtime on crash and book14. Google OAuth is handled by the API, with a private Docker environment and conversation history per account. Local development binds to loopback. See [deployment and migration instructions](deploy/isolation/README.md). The previous host-execution installers are disabled.
 
 # 386GPT
 
@@ -46,7 +46,7 @@ Backend environment variables:
 
 Frontend environment variables:
 
-- `VITE_API_URL`: backend HTTP origin, default `http://localhost:8080`
+- `VITE_API_URL`: API origin override; defaults to the current origin (Vite proxies local API requests)
 
 386GPT is a messaging client of the Hermes gateway. The `386gpt-channel` platform plugin accepts authenticated messages and dispatches ordinary `MessageEvent`s through Hermes's normal gateway handler—the same lifecycle used by messaging platforms. No Telegram account, token, library, or service is required. The profile owns the model, provider, system prompt, tools, memory, skills, and command handling. 386GPT does not create an API agent or inject agent instructions.
 
@@ -149,3 +149,12 @@ For an existing corrected profile, use the channel installer above. The older `c
 - [BOOTSTRA.386](https://github.com/kristopolous/BOOTSTRA.386) v5 theme from the upstream Git repository
 - Go, Gorilla WebSocket, SQLite, and a Hermes messaging gateway platform
 - Air as a pinned Go project tool
+
+### Account login and isolated workspaces
+
+Google sign-in runs in the Go API. Any Google account can sign in; each account
+gets private conversations and a separate non-root Hermes container, state and
+workspace. See [account deployment and capacity](deploy/isolation/README.md#google-accounts)
+for OAuth client setup, callback URLs, migration of the existing owner's history,
+local development, and environment limits. Google client downloads are ignored by
+Git and must never be committed.

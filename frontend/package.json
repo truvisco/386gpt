@@ -11,7 +11,7 @@
     "preview": "npm run build && vite preview",
     "deploy": "npm run build && wrangler deploy",
     "cf-typegen": "wrangler types",
-    "test:e2e": "node scripts/agent-ui.test.mjs",
+    "test:e2e": "node scripts/account-ui.test.mjs && node scripts/agent-ui.test.mjs",
     "test:access": "esbuild worker/index.ts --bundle --platform=node --format=esm --define:import.meta.env.DEV=false --outfile=node_modules/.tmp/access-worker.mjs && node scripts/access-worker.test.mjs"
   },
   "dependencies": {
