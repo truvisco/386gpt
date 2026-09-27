@@ -149,7 +149,7 @@ pipeline {
 
                     wait_for_url "$BACKEND_ORIGIN/health"
                     wait_for_url "$FRONTEND_ORIGIN/"
-                    curl_public "$BACKEND_ORIGIN/api/runtime" >/dev/null
+                    wait_for_url "$BACKEND_ORIGIN/api/runtime"
                     curl_public "$FRONTEND_ORIGIN/" | grep --quiet '<title>386GPT // Terminal AI</title>'
                     node deploy/smoke/websocket.mjs "$FRONTEND_ORIGIN"
                 '''

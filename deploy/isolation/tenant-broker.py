@@ -13,6 +13,7 @@ import re
 import secrets
 import subprocess
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import yaml
@@ -92,9 +93,26 @@ class Broker:
                 self.ready.add(account)
             return connection
 
+    def reconcile(self):
+        # Restore known stacks after a host/Docker restart, even when the API
+        # stayed up and already cached their gateway connections.
+        while True:
+            for target in self.root.iterdir():
+                if not ACCOUNT.fullmatch(target.name) or not (target/'connection.json').exists():
+                    continue
+                try:
+                    names=['386gpt-account-'+target.name+'-'+service+'-1' for service in ('hermes','gateway','model','egress')]
+                    result=self.runner(['docker','inspect','--format','{{.State.Running}}',*names],capture_output=True,text=True,timeout=15,check=False)
+                    if result.returncode or result.stdout.split()!=['true']*4:
+                        with self.lock:self.ready.discard(target.name)
+                        self.ensure(target.name)
+                except Exception:
+                    pass  # Retry next pass without discarding persistent data.
+            time.sleep(30)
+
 class Handler(BaseHTTPRequestHandler):
     def do_PUT(self):
-        if not hmac.compare_digest(self.headers.get('Authorization',''), 'Bearer '+self.server.key):
+        if not hmac.compare_digest(self.headers.get('Authorization','').encode(), ('Bearer '+self.server.key).encode()):
             return self.reply(401, {'error':'Unauthorized'})
         account = self.path.removeprefix('/v1/accounts/')
         if self.path != '/v1/accounts/'+account or not ACCOUNT.fullmatch(account):
@@ -139,4 +157,5 @@ if __name__=='__main__':
     if len(key)<32:raise SystemExit('A dedicated random broker key is required')
     server=ThreadingHTTPServer((a.bind,a.port),Handler)
     server.broker,server.key=broker,key
+    threading.Thread(target=broker.reconcile,daemon=True).start()
     server.serve_forever()
