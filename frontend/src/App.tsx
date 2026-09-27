@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import './App.css'
 import { AgentPanel } from './AgentPanel'
@@ -110,7 +110,8 @@ function App() {
   const pendingSubmission = useRef<{ id: string; thread: string; input: string; skills: string[] } | null>(null)
   const socketRef = useRef<WebSocket | null>(null)
   const socketThreadRef = useRef<string | null>(null)
-  const messagesEndRef = useRef<HTMLDivElement | null>(null)
+  const conversationRef = useRef<HTMLElement | null>(null)
+  const followLatestRef = useRef(true)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const assistantTargetsRef = useRef<Map<string, Message>>(new Map())
   const renderedLengthsRef = useRef<Map<string, number>>(new Map())
@@ -138,6 +139,7 @@ function App() {
 
   const activateConversation = useCallback((id: string | null) => {
     navigationRef.current++
+    followLatestRef.current = true
     clearTypingAnimations()
     socketRef.current?.close()
     socketRef.current = null
@@ -320,8 +322,11 @@ function App() {
     return () => { cancelled = true }
   }, [activeId, connectSocket, request])
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  useLayoutEffect(() => {
+    const conversation = conversationRef.current
+    if (conversation && followLatestRef.current) {
+      conversation.scrollTop = conversation.scrollHeight
+    }
   }, [messages])
 
   const newChat = (replace = false) => {
@@ -485,7 +490,10 @@ function App() {
           <div className="model-pill" title={`${runtime.provider} / ${runtime.model}`}><span className="status-dot online" /> {runtime.model.toUpperCase()} · {runtime.provider.toUpperCase()}</div>
         </header>
 
-        <section className={`conversation ${messages.length ? '' : 'welcome-mode'}`}>
+        <section ref={conversationRef} className={`conversation ${messages.length ? '' : 'welcome-mode'}`} onScroll={event => {
+          const conversation = event.currentTarget
+          followLatestRef.current = conversation.scrollHeight - conversation.clientHeight - conversation.scrollTop <= 64
+        }}>
           <AgentPanel run={agent.run} events={agent.events} runtime={runtime} skills={agent.skills} selected={selectedSkills} onSelect={setSelectedSkills} onSkills={() => void agent.loadSkills()} onControl={(action, body) => void controlRun(action, body)} error={agent.error} />
           {notice && <div className="notice"><strong>ERROR:</strong> {notice}</div>}
           {!messages.length && !loading ? (
@@ -516,7 +524,6 @@ function App() {
                   {!message.streaming && <button className="copy-button" onClick={() => void navigator.clipboard.writeText(message.content)} aria-label="Copy message"><Icon name="copy" /> COPY</button>}
                 </article>
               ))}
-              <div ref={messagesEndRef} />
             </div>
           )}
         </section>
