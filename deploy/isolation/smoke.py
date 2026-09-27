@@ -21,9 +21,15 @@ for text,expected in [('/status','Hermes Gateway Status'),('Reply with exactly S
  run_id=reply.get('run_id') or reply.get('id') or reply.get('run',{}).get('run_id')
  if not run_id:raise AssertionError('Missing receipt ID: '+str(list(reply)))
  deadline=time.monotonic()+240
+ completed_at=None
  while time.monotonic()<deadline:
   result=request('/v1/runs/'+run_id)
-  if result['status'] not in ('running','queued','waiting_for_approval','stopping'):break
+  if result['status']=='completed':
+   # Native command delivery can follow its processing-complete callback.
+   if expected in result.get('output',''): break
+   if completed_at is None: completed_at=time.monotonic()
+   if time.monotonic()-completed_at>10: break
+  elif result['status'] not in ('running','queued','waiting_for_approval','stopping'):break
   if result['status']=='waiting_for_approval':raise AssertionError('Harmless smoke command unexpectedly requires approval')
   time.sleep(2)
  assert result['status']=='completed',result.get('error',result['status'])
