@@ -1,3 +1,5 @@
+> **Current security setup:** Hermes uses an isolated non-root Docker runtime on crash and book14. Production requires Cloudflare Access for `mauriciootta@gmail.com`; local development binds to loopback. See [deployment and migration instructions](deploy/isolation/README.md). The previous host-execution installers are disabled.
+
 # 386GPT
 
 A DOS-inspired chat interface with a React frontend and Go backend. Conversations are persisted in SQLite and new messages stream over WebSockets.
@@ -78,11 +80,11 @@ Local development runs tools on book14 while inference remains on crash's Unslot
 sh deploy/development/configure-hermes-client.sh
 ```
 
-This prepares a dedicated pinned Hermes checkout and the `386gpt-local` profile, installs the loopback LaunchAgent `co.truvis.386gpt.hermes` with its messaging channel on port 8644, and writes owner-only `~/.hermes/386gpt.yaml`. Restart `go tool air` afterward. The existing default Hermes profile is unaffected. Tailscale access to crash's Unsloth port 8888 is required. `HERMES_SSH_HOST` and `HERMES_CONFIG` override connection installation defaults.
+This builds the isolated Hermes container, migrates the existing `386gpt-local` profile data, installs the Docker supervisor `co.truvis.386gpt.hermes` on loopback port 8644, and updates owner-only `~/.hermes/386gpt.yaml`. Docker Desktop and the existing profile/migration venv are required. Restart `go tool air` afterward. The existing default Hermes profile is unaffected. Tailscale access to crash's Unsloth port 8888 is required. `HERMES_SSH_HOST` and `HERMES_CONFIG` override connection installation defaults.
 
 The private development configuration contains `default_runtime: local` and a `runtimes` mapping with `local` and `crash` entries; each entry has `base_url`, `api_key`, and `session_key`. Production retains the legacy `agent` mapping, which selects crash. Never move existing thread bindings between hosts implicitly.
 
-The gateway channel is installed into the existing profile without replacing model/provider settings:
+Historical host-profile setup (superseded by the container migration instructions above):
 
 ```sh
 # On crash, using the corrected 386gpt profile:

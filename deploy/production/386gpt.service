@@ -8,6 +8,7 @@ Type=simple
 User=grimlock
 Group=grimlock
 WorkingDirectory=/var/www/vhosts/api-386gpt.truvis.co/current
+EnvironmentFile=/etc/386gpt/access.env
 Environment=ADDRESS=127.0.0.1:20386
 Environment=DATABASE_PATH=/var/www/vhosts/api-386gpt.truvis.co/shared/data/386gpt.db
 Environment=HERMES_CONFIG=/etc/386gpt/hermes.yaml

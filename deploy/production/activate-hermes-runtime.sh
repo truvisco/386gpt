@@ -1,5 +1,7 @@
 #!/bin/sh
 set -eu
+echo 'Host Hermes execution is retired. Follow deploy/isolation/README.md.' >&2
+exit 1
 test "$(id -u)" -eq 0 || { echo 'run as root' >&2; exit 1; }
 runtime=/home/grimlock/.hermes/386gpt-runtime
 test -x "$runtime/venv/bin/python"

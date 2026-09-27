@@ -52,3 +52,25 @@ fi
 
 chmod 600 "$config_file"
 echo "Rendered Hermes Agent production configuration from $prefix (value hidden)."
+
+access_json=$destination/access.json
+etcdctl --command-timeout=10s --endpoints="$endpoints" --user="$authentication" \
+    get "$prefix/access-config" --print-value-only > "$access_json"
+python3 - "$access_json" "$destination/access.env" "$destination/backend-access.env" <<'ACCESS_PY'
+import json, re, sys
+from pathlib import Path
+c=json.loads(Path(sys.argv[1]).read_text())
+values={
+ 'ACCESS_ISSUER': c['issuer'],
+ 'ACCESS_AUDIENCE': c['app']['aud'],
+ 'ACCESS_OWNER_EMAIL': 'mauriciootta@gmail.com',
+ 'ACCESS_SERVICE_CLIENT_ID': c['service']['client_id'],
+ 'CF_ACCESS_CLIENT_ID': c['service']['client_id'],
+ 'CF_ACCESS_CLIENT_SECRET': c['service']['client_secret'],
+}
+for k,v in values.items():
+ if not v or not re.fullmatch(r'[A-Za-z0-9@:/._-]+',v): raise SystemExit('Invalid Access setting: '+k)
+Path(sys.argv[2]).write_text(''.join(k+'='+v+'\n' for k,v in values.items()))
+Path(sys.argv[3]).write_text(''.join(k+'='+v+'\n' for k,v in values.items() if k.startswith('ACCESS_')))
+ACCESS_PY
+rm -f "$access_json"

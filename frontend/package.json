@@ -11,10 +11,12 @@
     "preview": "npm run build && vite preview",
     "deploy": "npm run build && wrangler deploy",
     "cf-typegen": "wrangler types",
-    "test:e2e": "node scripts/agent-ui.test.mjs"
+    "test:e2e": "node scripts/agent-ui.test.mjs",
+    "test:access": "esbuild worker/index.ts --bundle --platform=node --format=esm --define:import.meta.env.DEV=false --outfile=node_modules/.tmp/access-worker.mjs && node scripts/access-worker.test.mjs"
   },
   "dependencies": {
     "bootstra.386": "https://codeload.github.com/kristopolous/BOOTSTRA.386/tar.gz/5a42e54220e5f96c4a2e3a7486c3865d480e32f4",
+    "jose": "^6.2.2",
     "jquery": "^3.7.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
@@ -26,10 +28,12 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",
+    "esbuild": "^0.28.1",
     "oxlint": "^1.79.0",
     "playwright": "^1.62.1",
     "typescript": "~6.0.2",
     "vite": "^8.2.2",
-    "wrangler": "^4.131.1"
+    "wrangler": "^4.131.1",
+    "ws": "^8.22.0"
   }
 }

@@ -12,7 +12,7 @@ pipeline {
         BACKEND_HOST = 'web1'
         BACKEND_ORIGIN = 'https://api-386gpt.truvis.co'
         FRONTEND_ORIGIN = 'https://386gpt.truvis.co'
-        VITE_API_URL = 'https://api-386gpt.truvis.co'
+        VITE_API_URL = 'https://386gpt.truvis.co'
         ETCD_ENV_FILE = '/etc/etcd/jenkins.env'
         ETCD_PREFIX = '/prod/386gpt'
         SHARED_ETCD_PREFIX = '/prod/truvis.co'
@@ -32,6 +32,7 @@ pipeline {
                         dir('backend') {
                             sh 'go test ./...'
                             sh 'go vet ./...'
+                            sh 'cd ../deploy/isolation/proxy && go test ./...'
                         }
                     }
                 }
@@ -40,6 +41,7 @@ pipeline {
                         dir('frontend') {
                             sh 'npm ci'
                             sh 'npm run lint'
+                            sh 'npm run test:access'
                             sh 'npm run build'
                         }
                     }
@@ -109,8 +111,8 @@ pipeline {
                     sh '''
                         set +x
                         test -f dist/client/index.html
-                        grep -R --quiet "api-386gpt.truvis.co" dist/client/assets
-                        sh ../deploy/jenkins/with-cloudflare-env.sh npx wrangler deploy
+                        grep -R --quiet "386gpt.truvis.co" dist/client/assets
+                        ACCESS_ENV_FILE=../.deploy/release/secrets/access.env sh ../deploy/jenkins/with-access-env.sh sh ../deploy/jenkins/deploy-frontend.sh
                     '''
                 }
             }
@@ -121,9 +123,13 @@ pipeline {
             steps {
                 sh '''
                     set -eu
+                    set +x
+                    set -a
+                    . .deploy/release/secrets/access.env
+                    set +a
                     curl_public() {
                         url=$1
-                        curl --fail --silent --show-error --connect-timeout 10 --max-time 15 "$url"
+                        curl --fail --silent --show-error --connect-timeout 10 --max-time 15 -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" "$url"
                     }
 
                     wait_for_url() {
@@ -144,7 +150,7 @@ pipeline {
                     wait_for_url "$FRONTEND_ORIGIN/"
                     curl_public "$BACKEND_ORIGIN/api/runtime" >/dev/null
                     curl_public "$FRONTEND_ORIGIN/" | grep --quiet '<title>386GPT // Terminal AI</title>'
-                    node deploy/smoke/websocket.mjs "$BACKEND_ORIGIN"
+                    node deploy/smoke/websocket.mjs "$FRONTEND_ORIGIN"
                 '''
             }
         }

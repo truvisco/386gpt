@@ -16,6 +16,7 @@ esac
 test "$(id -u)" -eq 0 || { echo "this installer must run as root" >&2; exit 1; }
 test -x "$staging/386gpt"
 test -f "$staging/secrets/hermes.yaml"
+test -s "$staging/secrets/backend-access.env"
 
 app_user=grimlock
 deploy_root=/var/www/vhosts/api-386gpt.truvis.co
@@ -40,6 +41,7 @@ install -d -m 0750 -o root -g "$app_user" "$config_dir"
 install -d -m 0755 -o root -g root "$release_dir"
 install -m 0755 -o root -g root "$staging/386gpt" "$release_dir/386gpt"
 install -m 0640 -o root -g "$app_user" "$staging/secrets/hermes.yaml" "$config_dir/hermes.yaml"
+install -m 0640 -o root -g "$app_user" "$staging/secrets/backend-access.env" "$config_dir/access.env"
 install -m 0644 -o root -g root "$staging/386gpt.service" /etc/systemd/system/386gpt.service
 install -m 0644 -o root -g root "$staging/api-386gpt.truvis.co.nginx.conf" /etc/nginx/sites-available/api-386gpt.truvis.co.conf
 ln -sfn /etc/nginx/sites-available/api-386gpt.truvis.co.conf /etc/nginx/sites-enabled/api-386gpt.truvis.co.conf
@@ -78,7 +80,7 @@ done
 
 if [ "$healthy" != true ]; then
     journalctl -u 386gpt.service -n 50 --no-pager >&2 || true
-    if [ -n "$previous_target" ] && [ -d "$previous_target" ]; then
+    if [ -n "$previous_target" ] && [ -f "$previous_target/access-enforced" ]; then
         ln -sfn "$previous_target" "$current_link"
         systemctl restart 386gpt.service || true
     fi
@@ -86,4 +88,5 @@ if [ "$healthy" != true ]; then
     exit 1
 fi
 
+touch "$release_dir/access-enforced"
 echo "386GPT release $release_id is healthy."

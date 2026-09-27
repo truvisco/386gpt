@@ -3,7 +3,7 @@ tmp_dir = ".air/tmp"
 
 [build]
   cmd = "go build -o ./.air/tmp/386gpt ."
-  entrypoint = ["./.air/tmp/386gpt"]
+  entrypoint = ["env", "AUTH_MODE=development", "ADDRESS=127.0.0.1:8080", "./.air/tmp/386gpt"]
   include_ext = ["go"]
   exclude_dir = [".air", "data"]
   delay = 250

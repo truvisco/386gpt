@@ -1,0 +1,11 @@
+**
+!deploy
+!deploy/isolation
+!deploy/isolation/**
+!deploy/production
+!deploy/production/patch-hermes-runtime.py
+!deploy/hermes-gateway
+!deploy/hermes-gateway/386gpt-channel
+!deploy/hermes-gateway/386gpt-channel/**
+**/__pycache__
+**/*.pyc

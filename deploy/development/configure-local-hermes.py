@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Install the Mac's dedicated Hermes profile and loopback launchd service."""
+raise SystemExit('Host Hermes execution is retired. Run sh deploy/isolation/install-local.sh')
 import os
 from pathlib import Path
 import plistlib

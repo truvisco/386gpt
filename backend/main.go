@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	address := envOr("ADDRESS", ":8080")
+	address := envOr("ADDRESS", "127.0.0.1:8080")
 	databasePath := envOr("DATABASE_PATH", "data/386gpt.db")
 	hermesPath, err := defaultHermesConfigPath()
 	if err != nil {
@@ -38,10 +38,15 @@ func main() {
 
 	app := newServer(store, llm)
 	defer app.close()
+	handler, err := authentication(address, app.routes())
+	if err != nil {
+		slog.Error("configure authentication", "error", err)
+		os.Exit(1)
+	}
 	app.recoverRuns()
 	server := &http.Server{
 		Addr:              address,
-		Handler:           app.routes(),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

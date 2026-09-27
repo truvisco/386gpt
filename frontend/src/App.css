@@ -61,9 +61,9 @@ button { border: 0; }
 .model-pill { margin-left: auto; padding: 7px 10px; color: #9a9a9a; font-size: 11px !important; letter-spacing: 1px; border: 1px solid #292929; }
 
 .conversation { flex: 1; min-height: 0; overflow-y: auto; }
-.conversation.welcome-mode { display: grid; place-items: center; }
+.conversation.welcome-mode { display: flex; flex-direction: column; }
 .notice { width: min(820px, calc(100% - 36px)); margin: 18px auto 0; padding: 10px 12px; color: #ffaaaa; background: #220000; border-left: 3px solid var(--red); font-size: 12px !important; line-height: 1.5; }
-.welcome { width: min(760px, calc(100% - 36px)); padding: 40px 0; text-align: center; }
+.welcome { flex-shrink: 0; align-self: center; margin: auto 0; width: min(760px, calc(100% - 36px)); padding: 40px 0; text-align: center; }
 .ascii-logo { display: inline-block; color: var(--cyan); font-family: monospace; font-size: clamp(6px, 1.05vw, 12px) !important; line-height: 1.05; text-align: left; white-space: pre; text-shadow: 0 0 18px rgba(85,255,255,.18); }
 .welcome-kicker { margin: 21px 0 12px; color: #656565; font-size: 11px !important; letter-spacing: 2px; }
 .welcome h1 { margin: 0; color: var(--text); font-size: 19px !important; letter-spacing: 1.5px; }
@@ -139,4 +139,3 @@ button { border: 0; }
 .agent-skills small { display: block; padding-left: 24px; }
 .agent-evidence { max-height: 420px; overflow: auto; }
 .tool-record { padding-left: 10px; border-left: 1px solid var(--line); margin: 3px 0; }
-.conversation.welcome-mode { justify-content: flex-start; }

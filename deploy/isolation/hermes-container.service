@@ -1,0 +1,17 @@
+[Unit]
+Description=Isolated 386GPT Hermes gateway
+Requires=docker.service
+After=docker.service network-online.target tailscaled.service unsloth.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/386gpt-isolation
+ExecStart=/usr/bin/docker compose --env-file /etc/386gpt-isolation/compose.env -f deploy/isolation/compose.yaml up -d --no-build --wait --wait-timeout 120
+ExecStop=/usr/bin/docker compose --env-file /etc/386gpt-isolation/compose.env -f deploy/isolation/compose.yaml stop
+TimeoutStartSec=180
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target

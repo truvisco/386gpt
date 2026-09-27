@@ -84,7 +84,7 @@ func (h *Hub) broadcast(threadID string, event socketEvent) {
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	CheckOrigin:     func(_ *http.Request) bool { return true },
+	CheckOrigin:     func(r *http.Request) bool { return allowedOrigin(r.Header.Get("Origin")) },
 }
 
 func (s *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -101,6 +101,10 @@ func (s *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("upgrade websocket", "error", err)
 		return
+	}
+	if expiry, ok := r.Context().Value(accessExpiryKey{}).(time.Time); ok {
+		timer := time.AfterFunc(time.Until(expiry), func() { _ = conn.Close() })
+		defer timer.Stop()
 	}
 	client := &Client{threadID: threadID, conn: conn, send: make(chan []byte, 32)}
 	s.hub.register(client)

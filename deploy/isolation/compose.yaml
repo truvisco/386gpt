@@ -1,0 +1,93 @@
+name: 386gpt-isolated
+x-hardening: &hardening
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  logging:
+    driver: json-file
+    options: {max-size: 10m, max-file: '3'}
+services:
+  hermes:
+    <<: *hardening
+    image: 386gpt-hermes:isolated
+    build:
+      context: ../..
+      dockerfile: deploy/isolation/Dockerfile
+    user: '10001:10001'
+    cpus: 4
+    mem_limit: 4g
+    pids_limit: 512
+    tmpfs: ['/tmp:size=536870912,mode=1777,nosuid,nodev']
+    environment:
+      HTTP_PROXY: http://egress:8080
+      HTTPS_PROXY: http://egress:8080
+      http_proxy: http://egress:8080
+      https_proxy: http://egress:8080
+      NO_PROXY: localhost,127.0.0.1,model
+      no_proxy: localhost,127.0.0.1,model
+      API_SERVER_ENABLED: 'false'
+    volumes:
+      - state:/state
+      - workspace:/workspace
+      - ${ISOLATION_CONFIG:?required}/config.yaml:/state/profile/config.yaml:ro
+      - ${ISOLATION_CONFIG:?required}/profile.env:/state/profile/.env:ro
+    healthcheck:
+      test: [CMD, python, -c, "import socket; socket.create_connection(('127.0.0.1',8644),3).close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+    networks: [agent]
+    depends_on: [egress, model]
+  gateway:
+    <<: *hardening
+    image: 386gpt-boundary:isolated
+    build:
+      context: ../..
+      dockerfile: deploy/isolation/Dockerfile.proxy
+    user: '65532:65532'
+    mem_limit: 128m
+    pids_limit: 64
+    environment:
+      MODE: gateway
+      UPSTREAM: http://hermes:8644
+      GATEWAY_KEY_FILE: /run/secrets/gateway
+      INTERNAL_KEY_FILE: /run/secrets/internal
+    volumes: ['${ISOLATION_CONFIG:?required}/gateway.key:/run/secrets/gateway:ro', '${ISOLATION_CONFIG:?required}/internal.key:/run/secrets/internal:ro']
+    ports: ['${GATEWAY_BIND:?required}:${GATEWAY_PORT:-8644}:8080']
+    networks: [agent, inbound]
+    depends_on: [hermes]
+  model:
+    <<: *hardening
+    image: 386gpt-boundary:isolated
+    user: '65532:65532'
+    mem_limit: 128m
+    pids_limit: 64
+    environment:
+      MODE: model
+      UPSTREAM: ${UNSLOTH_UPSTREAM:?required}
+      PROVIDER_KEY_FILE: /run/secrets/provider
+    volumes: ['${ISOLATION_CONFIG:?required}/provider.key:/run/secrets/provider:ro']
+    extra_hosts: ['host.docker.internal:host-gateway']
+    networks: [agent, model_out]
+  egress:
+    <<: *hardening
+    image: 386gpt-boundary:isolated
+    user: '65532:65532'
+    mem_limit: 256m
+    pids_limit: 128
+    environment: {MODE: egress}
+    networks: [agent, public_out]
+networks:
+  agent:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+  inbound: {}
+  model_out: {}
+  public_out: {}
+volumes:
+  state:
+    name: ${HERMES_STATE_VOLUME:-386gpt-isolated_state}
+  workspace: {}

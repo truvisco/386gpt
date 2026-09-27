@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import WebSocket from '../../frontend/node_modules/ws/wrapper.mjs'
+const accessHeaders = process.env.CF_ACCESS_CLIENT_ID ? { 'CF-Access-Client-Id': process.env.CF_ACCESS_CLIENT_ID, 'CF-Access-Client-Secret': process.env.CF_ACCESS_CLIENT_SECRET } : {}
 const [origin] = process.argv.slice(2)
 if (!origin) {
   console.error('usage: websocket.mjs BACKEND_ORIGIN')
@@ -8,7 +10,7 @@ if (!origin) {
 
 const response = await fetch(`${origin}/api/threads`, {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  headers: { ...accessHeaders, 'Content-Type': 'application/json' },
   body: JSON.stringify({ title: 'Deployment smoke test' }),
 })
 if (!response.ok) {
@@ -18,7 +20,7 @@ if (!response.ok) {
 const { thread } = await response.json()
 async function checkTurn(content, statusCommand = false) {
   const websocketOrigin = origin.replace(/^http/, 'ws')
-  const socket = new WebSocket(`${websocketOrigin}/ws?thread_id=${encodeURIComponent(thread.id)}`)
+  const socket = new WebSocket(`${websocketOrigin}/ws?thread_id=${encodeURIComponent(thread.id)}`, { headers: accessHeaders })
   const assistantContent = await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('LLM completion timed out')), 120_000)
     socket.addEventListener('message', (event) => {
@@ -60,5 +62,5 @@ try {
   await checkTurn('Reply again with the single word OK.')
   console.log('Native gateway command and model reply smoke test passed.')
 } finally {
-  await fetch(`${origin}/api/threads/${encodeURIComponent(thread.id)}`, { method: 'DELETE' })
+  await fetch(`${origin}/api/threads/${encodeURIComponent(thread.id)}`, { method: 'DELETE', headers: accessHeaders })
 }

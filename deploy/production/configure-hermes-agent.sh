@@ -1,5 +1,7 @@
 #!/bin/sh
 set -eu
+echo 'Host Hermes execution is retired. Follow deploy/isolation/README.md.' >&2
+exit 1
 set +x
 
 etcd_env_file=${ETCD_ENV_FILE:-/etc/etcd/jenkins.env}
