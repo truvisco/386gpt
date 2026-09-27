@@ -74,7 +74,31 @@ tokens, with thinking disabled. Background Hermes title generation is disabled
 because 386GPT already titles its threads. Its configuration is in
 `deploy/production/hermes-unsloth.yaml`.
 
-Keep Unsloth running with that model loaded and at least 65,536 context tokens.
+Unsloth runs as `unsloth.service` on crash, enabled at boot with automatic
+restart. Each service start loads Gemma Q4_K_P with a 66,304-token context and
+four parallel slots. A Hermes systemd drop-in orders its boot startup after
+Unsloth's authenticated model-readiness check. The Studio UI remains available
+at `http://192.168.68.180:8888/`.
+
+To install or update the unit, copy `unsloth.service`, `load-unsloth-model.py`,
+and `install-unsloth-service.sh` from `deploy/production/` into the same directory
+on crash, then run the installer as root. Stop any manually launched Studio
+process first so port 8888 is available. The installer defaults to the dedicated
+key file created during setup, `/home/grimlock/.hermes/386gpt-unsloth-api-key`;
+override `UNSLOTH_API_KEY_FILE` to use a different private file. It installs a
+root-only copy at `/etc/unsloth/api-key`, which systemd supplies to the readiness
+helper using `LoadCredential`.
+
+```sh
+sudo sh deploy/production/install-unsloth-service.sh
+systemctl status unsloth.service
+journalctl -u unsloth.service -f
+```
+
+`sudo systemctl restart unsloth.service` restarts Studio and reloads Gemma;
+Hermes stays running during recovery. Changing the loaded model in Studio is
+temporary: the next service start restores this preferred model.
+
 Copy both files from `deploy/production/configure-hermes-agent.sh` and
 `deploy/production/hermes-unsloth.yaml` to the same directory on crash. For the
 first setup, supply a private file containing a dedicated Unsloth API key:

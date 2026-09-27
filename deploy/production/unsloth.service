@@ -1,0 +1,27 @@
+[Unit]
+Description=Unsloth Studio with Gemma for 386GPT
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+User=grimlock
+Group=grimlock
+WorkingDirectory=/home/grimlock
+Environment=HOME=/home/grimlock
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/home/grimlock/.unsloth/studio/unsloth_studio/bin:/home/grimlock/.local/bin:/usr/local/bin:/usr/bin:/bin
+LoadCredential=unsloth-api-key:/etc/unsloth/api-key
+ExecStart=/home/grimlock/.unsloth/studio/unsloth_studio/bin/unsloth studio --host 0.0.0.0 --port 8888 --parallel 4 --no-cloudflare --silent
+ExecStartPost=/usr/bin/python3 /usr/local/lib/386gpt/load-unsloth-model.py
+Restart=always
+RestartSec=10
+TimeoutStartSec=10min
+TimeoutStopSec=90
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

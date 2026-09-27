@@ -109,14 +109,17 @@ with open(sys.argv[1]) as source:
 provider = next(p for p in config["custom_providers"] if p["name"] == config["model"]["provider"])
 with open(sys.argv[2]) as source:
     key = source.read().strip().split("=", 1)[1]
-request = urllib.request.Request(provider["base_url"].rstrip("/") + "/models",
+# The public model listing can omit quantization after API-initiated loading.
+# Read the resident backend's status, which reports the actual GGUF variant.
+status_url = provider["base_url"].rstrip("/").removesuffix("/v1") + "/api/inference/status"
+request = urllib.request.Request(status_url,
     headers={"Authorization": "Bearer " + key})
 with urllib.request.urlopen(request, timeout=15) as response:
-    models = json.load(response)["data"]
-model = next((m for m in models if m["id"] == config["model"]["default"]), None)
-if not model or not model.get("loaded") or model.get("quant") != "Q4_K_P":
+    status = json.load(response)
+model = config["model"]["default"]
+if status.get("active_model") != model or model not in status.get("loaded", []) or status.get("gguf_variant") != "Q4_K_P":
     raise SystemExit("Load the configured Gemma Q4_K_P model in Unsloth before switching Hermes")
-if model.get("context_length", 0) < provider["context_length"]:
+if (status.get("context_length") or 0) < provider["context_length"]:
     raise SystemExit("Unsloth context is smaller than the configured Hermes context length")
 print("Verified loaded Unsloth Gemma Q4_K_P model and context capacity.")
 PY
