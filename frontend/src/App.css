@@ -43,11 +43,12 @@ button { border: 0; }
 .thread-item:hover .delete-thread, .thread-item:focus-within .delete-thread { display: grid; }
 .delete-thread:hover { color: var(--red); }
 .empty-history { padding: 24px 12px; color: #555; font-size: 12px !important; line-height: 1.7; text-align: center; }
-.sidebar-footer { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; padding: 12px 14px; color: #666; font-size: 10px !important; letter-spacing: .8px; border-top: 1px solid var(--line); }
+.sidebar-footer { display: grid; flex-shrink: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px 10px; padding: 12px 14px; color: #666; font-size: 10px !important; letter-spacing: .8px; border-top: 1px solid var(--line); }
+.sidebar-footer .turbo-button { justify-self: start; }
 .turbo-button { padding: 7px 8px; color: #777; background: #101010; border: 1px solid #3a3a3a; font-size: 10px !important; letter-spacing: .8px; white-space: nowrap; }
 .turbo-button:hover { color: var(--cyan); border-color: var(--cyan-dim); }
 .turbo-button.active { color: var(--black); background: var(--yellow); border-color: var(--yellow); box-shadow: 0 0 9px rgba(255,255,85,.25) !important; }
-.sidebar-status { line-height: 1.7; text-align: right; }
+.sidebar-status { font-size: 10px !important; line-height: 1.7; text-align: right; white-space: nowrap; }
 .status-dot { display: inline-block; width: 7px; height: 7px; margin-right: 4px; background: #555; }
 .status-dot.online { background: #55ff55; box-shadow: 0 0 8px rgba(85,255,85,.65) !important; }
 
@@ -141,5 +142,7 @@ button { border: 0; }
 .tool-record { padding-left: 10px; border-left: 1px solid var(--line); margin: 3px 0; }
 
 .account-gate { min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 2rem; text-align: center; }
-.account-summary { display: flex; flex-direction: column; gap: .5rem; margin-bottom: 1rem; font-size: .75rem; }
-.account-summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-summary { grid-column: 1 / -1; display: flex; align-items: center; min-width: 0; gap: 10px; }
+.account-summary span { flex: 1; min-width: 0; overflow: hidden; color: var(--muted); font-size: 12px !important; text-overflow: ellipsis; white-space: nowrap; }
+.account-summary button { flex-shrink: 0; padding: 6px 8px; color: var(--muted); background: transparent; border: 1px solid var(--line); font-size: 10px !important; white-space: nowrap; }
+.account-summary button:hover { color: var(--cyan); border-color: var(--cyan-dim); }
