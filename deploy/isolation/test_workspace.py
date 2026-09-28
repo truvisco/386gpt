@@ -44,6 +44,45 @@ class Workspace(unittest.TestCase):
             self.assertEqual(env.read_text(), 'EXISTING=value\n')
             self.assertFalse(any('rm' in call for call in calls))
 
+    def test_copy_retry_uses_fresh_staging_after_source_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / 'workspace'
+            env = root / 'compose.env'
+            env.write_text('EXISTING=value\n')
+            attempts = []
+            source_files = {'renamed.txt': 'before'}
+
+            def runner(args, **kwargs):
+                value = []
+                if args[1:3] == ['container', 'inspect']:
+                    value = [{'Mounts': [{'Destination': '/workspace', 'Type': 'volume',
+                                         'Name': '386gpt-isolated_workspace'}],
+                              'State': {'Running': True}}]
+                elif args[1:3] == ['volume', 'inspect']:
+                    value = [{'Labels': {'com.docker.compose.project': '386gpt-isolated'}}]
+                elif args[1] == 'run':
+                    mount = next(arg for arg in args if arg.startswith('type=bind,'))
+                    staging = Path(next(part[4:] for part in mount.split(',') if part.startswith('src=')))
+                    attempts.append(staging)
+                    if len(attempts) == 1:
+                        (staging / 'obsolete.txt').write_text('partial copy')
+                        return types.SimpleNamespace(returncode=1, stdout='', stderr='copy failed')
+                    for name, contents in source_files.items():
+                        (staging / name).write_text(contents)
+                return types.SimpleNamespace(returncode=0, stdout=json.dumps(value), stderr='')
+
+            with self.assertRaisesRegex(RuntimeError, 'original volume retained'):
+                ensure_workspace('386gpt-isolated', env, target, runner)
+            source_files = {'current.txt': 'after'}
+            ensure_workspace('386gpt-isolated', env, target, runner)
+
+            self.assertEqual(len(attempts), 2)
+            self.assertNotEqual(attempts[0], attempts[1])
+            self.assertFalse((target / 'obsolete.txt').exists())
+            self.assertFalse((target / 'renamed.txt').exists())
+            self.assertEqual((target / 'current.txt').read_text(), 'after')
+
     def test_inspection_failure_does_not_create_empty_workspace(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

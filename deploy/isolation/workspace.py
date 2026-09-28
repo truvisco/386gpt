@@ -5,7 +5,9 @@ import argparse
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
+import tempfile
 
 PROJECT = re.compile(r'386gpt-(?:isolated|account-[a-f0-9]{64}|test-[a-z0-9-]+)')
 
@@ -48,9 +50,8 @@ def ensure_workspace(project, environment, destination, runner=subprocess.run):
         metadata=json.loads(result.stdout)[0]
         if (metadata.get('Labels') or {}).get('com.docker.compose.project')!=project:
             raise RuntimeError('Workspace volume belongs to a different project')
-    staging=destination.with_name('.'+destination.name+'-migration')
-    if staging.is_symlink():raise RuntimeError('Invalid migration directory')
-    staging.mkdir(mode=0o700,parents=True,exist_ok=True)
+    destination.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
+    staging=Path(tempfile.mkdtemp(prefix='.'+destination.name+'-migration-',dir=destination.parent))
     args=['docker','run','--rm','--network','none','--user','0:0','--cap-drop','ALL',
           '--cap-add','CHOWN','--cap-add','DAC_OVERRIDE','--cap-add','FOWNER',
           '--security-opt','no-new-privileges:true','--entrypoint','/bin/sh',
@@ -58,6 +59,7 @@ def ensure_workspace(project, environment, destination, runner=subprocess.run):
     if source:args+=['--mount','type=volume,src='+volume+',dst=/source,readonly']
     args+=['386gpt-hermes:isolated','-ec',('cp -a /source/. /target/; ' if source else '')+'chown 10001:10001 /target; chmod 0750 /target']
     if running and run(['docker','stop',container]).returncode:
+        shutil.rmtree(staging,ignore_errors=True)
         raise RuntimeError('Could not quiesce the workspace for migration')
     try:
         if run(args).returncode:raise RuntimeError('Workspace migration failed; original volume retained')
@@ -68,6 +70,7 @@ def ensure_workspace(project, environment, destination, runner=subprocess.run):
         temporary.replace(environment)
     except Exception:
         if running:run(['docker','start',container])
+        shutil.rmtree(staging,ignore_errors=True)
         raise
 
 if __name__=='__main__':
