@@ -17,6 +17,19 @@ COPY deploy/isolation/start.py /opt/start.py
 COPY deploy/isolation/patch-readonly-config.py /tmp/patch-readonly-config.py
 RUN python /tmp/patch-readonly-config.py
 RUN groupadd --gid 10001 hermes && useradd --uid 10001 --gid 10001 --home-dir /state/home --no-create-home hermes && mkdir -p /state/profile /state/home /workspace && chown -R 10001:10001 /state /workspace
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      sudo bash-completion cmake ninja-build pkg-config \
+      jq file less nano vim-tiny tree unzip zip xz-utils \
+      wget rsync openssh-client lsof netcat-openbsd sqlite3 \
+      libssl-dev libffi-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && printf '%s\n' \
+      'hermes ALL=(ALL:ALL) NOPASSWD: ALL' \
+      'Defaults:hermes env_keep += "HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy"' \
+      'Defaults:hermes secure_path="/opt/venv/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"' \
+      > /etc/sudoers.d/hermes \
+    && chmod 0440 /etc/sudoers.d/hermes \
+    && visudo -cf /etc/sudoers
 ENV PATH=/opt/venv/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin HOME=/state/home HERMES_HOME=/state/profile PYTHONPATH=/opt/hermes API_SERVER_ENABLED=false HERMES_CONFIG_READONLY=1
 USER 10001:10001
 WORKDIR /workspace

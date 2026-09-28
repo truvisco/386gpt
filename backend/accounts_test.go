@@ -159,3 +159,85 @@ func TestAccountFailsClosedDuringProvisioning(t *testing.T) {
 		t.Fatal("client selected identity")
 	}
 }
+
+func TestSignInRechecksCachedEnvironment(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprint("legacy=", legacy), func(t *testing.T) {
+			store, err := openStore(filepath.Join(t.TempDir(), "db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			identity := accountIdentity{ID: identityID("google", "user", "subject"), Email: "user@example.com"}
+			owner := "owner@example.com"
+			if legacy {
+				owner = identity.Email
+			}
+			calls := make(chan string, 10)
+			release := make(chan struct{}, 10)
+			connection := &HermesClient{baseURL: "http://account", apiKey: "key", sessionKey: "account", httpClient: &http.Client{}}
+			provision := func(ctx context.Context, id string) (*HermesClient, error) {
+				calls <- id
+				select {
+				case <-release:
+					return connection, nil
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
+			m, err := newAccountManager(store, connection, t.TempDir(), owner, provision)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer m.close()
+			release <- struct{}{}
+			awaitAccount(t, m, identity)
+			expected := identity.ID
+			if legacy {
+				expected = "owner"
+			}
+			if id := <-calls; id != expected {
+				t.Fatal("wrong environment", id)
+			}
+			m.mu.Lock()
+			original := m.slots[identity.ID].app
+			m.mu.Unlock()
+			thread, err := original.store.CreateThread("Preserved history")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i := 0; i < 3; i++ {
+				accountRequest(m, identity, "GET", "/api/account", "")
+			}
+			select {
+			case <-calls:
+				t.Fatal("ordinary request caused repeated image check")
+			default:
+			}
+			m.signedIn(identity)
+			if id := <-calls; id != expected {
+				t.Fatal("wrong environment refreshed", id)
+			}
+			if w := accountRequest(m, identity, "GET", "/api/threads", ""); w.Code != 503 {
+				t.Fatal("served account before image check completed")
+			}
+			// A second login during an update must not be lost behind the cached result.
+			m.signedIn(identity)
+			release <- struct{}{}
+			release <- struct{}{}
+			awaitAccount(t, m, identity)
+			if id := <-calls; id != expected {
+				t.Fatal("overlapping sign-in lost")
+			}
+			m.mu.Lock()
+			same := m.slots[identity.ID].app == original
+			m.mu.Unlock()
+			if !same {
+				t.Fatal("replaced account store/hub during image check")
+			}
+			if w := accountRequest(m, identity, "GET", "/api/threads", ""); !strings.Contains(w.Body.String(), thread.ID) {
+				t.Fatal("history lost")
+			}
+		})
+	}
+}

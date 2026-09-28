@@ -24,6 +24,7 @@ if sudo test -d /etc/systemd/system/hermes-gateway-386gpt.service.d; then
 fi
 sudo install -m 0644 deploy/isolation/hermes-container.service /etc/systemd/system/hermes-gateway-386gpt.service
 sudo "$python" deploy/isolation/update-client.py /etc/hermes-agent/386gpt-client.yaml "$settings/gateway.key" --runtime crash --url http://100.74.13.43:8644
+sudo python3 deploy/isolation/workspace.py --project 386gpt-isolated --environment "$settings/compose.env" --workspace "$settings/workspace"
 sudo systemctl daemon-reload
 sudo systemctl enable hermes-gateway-386gpt.service
 sudo systemctl restart hermes-gateway-386gpt.service

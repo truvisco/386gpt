@@ -5,6 +5,7 @@ export PATH=/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin
 checkout=${1:?checkout required}
 settings=${2:?compose environment required}
 docker info >/dev/null 2>&1 || exit 1
+python3 "$checkout/deploy/isolation/workspace.py" --project 386gpt-isolated --environment "$settings" --workspace "$(dirname "$settings")/workspace"
 docker compose --env-file "$settings" -f "$checkout/deploy/isolation/compose.yaml" up -d --no-build --wait --wait-timeout 120
 broker_pid=
 cleanup() { if [ -n "$broker_pid" ]; then kill "$broker_pid" 2>/dev/null || true; fi; }

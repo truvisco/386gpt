@@ -17,6 +17,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import yaml
+from workspace import ensure_workspace
 
 ACCOUNT = re.compile(r'[a-f0-9]{64}')
 
@@ -32,7 +33,6 @@ class Broker:
         self.runner, self.lock = runner, threading.Lock()
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.root.chmod(0o700)
-        self.ready = set()
 
     def prepare(self, account):
         if not ACCOUNT.fullmatch(account):
@@ -82,16 +82,29 @@ class Broker:
         # Serialize first provisioning and port allocation, including retries.
         with self.lock:
             connection = self.prepare(account)
-            if account not in self.ready:
-                result = self.runner(['docker','compose','--project-name','386gpt-account-'+account,
-                    '--env-file',str(self.root/account/'compose.env'),'-f',str(self.compose),
-                    'up','-d','--no-build','--wait','--wait-timeout','120'],
-                    capture_output=True, timeout=135, check=False)
-                if result.returncode:
-                    # Do not echo Compose output: it may contain configuration.
-                    raise RuntimeError('Account container startup failed')
-                self.ready.add(account)
+            target=self.root/account
+            ensure_workspace('386gpt-account-'+account, target/'compose.env', target/'workspace', self.runner)
+            self.update_stack('386gpt-account-'+account, target/'compose.env')
             return connection
+
+    def update_stack(self, project, environment):
+        # Compose compares actual image IDs, even when a mutable tag is reused.
+        # Up recreates stale containers, preserving bind mounts and state volumes.
+        # An up-to-date healthy container is left running.
+        result = self.runner(['docker','compose','--project-name',project,
+            '--env-file',str(environment),'-f',str(self.compose),
+            'up','-d','--no-build','--wait','--wait-timeout','120'],
+            capture_output=True, timeout=135, check=False)
+        if result.returncode:
+            raise RuntimeError('Account container startup failed')
+
+    def ensure_owner(self):
+        with self.lock:
+            environment=self.template/'compose.env'
+            ensure_workspace('386gpt-isolated', environment, self.template/'workspace', self.runner)
+            self.update_stack('386gpt-isolated', environment)
+        return {'ready':True}
+
 
     def reconcile(self):
         # Restore known stacks after a host/Docker restart, even when the API
@@ -104,7 +117,6 @@ class Broker:
                     names=['386gpt-account-'+target.name+'-'+service+'-1' for service in ('hermes','gateway','model','egress')]
                     result=self.runner(['docker','inspect','--format','{{.State.Running}}',*names],capture_output=True,text=True,timeout=15,check=False)
                     if result.returncode or result.stdout.split()!=['true']*4:
-                        with self.lock:self.ready.discard(target.name)
                         self.ensure(target.name)
                 except Exception:
                     pass  # Retry next pass without discarding persistent data.
@@ -114,13 +126,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_PUT(self):
         if not hmac.compare_digest(self.headers.get('Authorization','').encode(), ('Bearer '+self.server.key).encode()):
             return self.reply(401, {'error':'Unauthorized'})
+        owner = self.path == '/v1/owner'
         account = self.path.removeprefix('/v1/accounts/')
-        if self.path != '/v1/accounts/'+account or not ACCOUNT.fullmatch(account):
+        if not owner and (self.path != '/v1/accounts/'+account or not ACCOUNT.fullmatch(account)):
             return self.reply(404, {'error':'Not found'})
         if self.headers.get('Transfer-Encoding') or self.headers.get('Content-Length','0') != '0':
             return self.reply(400, {'error':'Request body is not accepted'})
         try:
-            connection = self.server.broker.ensure(account)
+            connection = self.server.broker.ensure_owner() if owner else self.server.broker.ensure(account)
         except OverflowError:
             return self.reply(503, {'error':'Account environment capacity reached'})
         except Exception:

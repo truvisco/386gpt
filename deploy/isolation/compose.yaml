@@ -15,6 +15,11 @@ services:
       context: ../..
       dockerfile: deploy/isolation/Dockerfile
     user: '10001:10001'
+    # Interactive development needs sudo and apt inside this account's container.
+    # Proxies retain the read-only/no-new-privileges defaults above.
+    read_only: false
+    security_opt: ['no-new-privileges:false']
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, FSETID, KILL, SETGID, SETUID, SETFCAP, AUDIT_WRITE]
     cpus: 4
     mem_limit: 4g
     pids_limit: 512
@@ -29,7 +34,11 @@ services:
       API_SERVER_ENABLED: 'false'
     volumes:
       - state:/state
-      - workspace:/workspace
+      - type: bind
+        source: ${HERMES_WORKSPACE:?required}
+        target: /workspace
+        bind:
+          create_host_path: false
       - ${ISOLATION_CONFIG:?required}/config.yaml:/state/profile/config.yaml:ro
       - ${ISOLATION_CONFIG:?required}/profile.env:/state/profile/.env:ro
     healthcheck:
@@ -90,4 +99,3 @@ networks:
 volumes:
   state:
     name: ${HERMES_STATE_VOLUME:-386gpt-isolated_state}
-  workspace: {}

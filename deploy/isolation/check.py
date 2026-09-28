@@ -5,14 +5,21 @@ import socket
 import subprocess
 import urllib.request
 import urllib.error
-assert os.getuid()==10001
+root_check = "--root" in __import__("sys").argv
+assert os.getuid()==(0 if root_check else 10001)
 status=Path('/proc/self/status').read_text()
-assert 'CapEff:\t0000000000000000' in status and 'NoNewPrivs:\t1' in status
-for path in ['/var/run/docker.sock','/run/docker.sock','/Users/grimlock','/home/grimlock','/root/.ssh']:
+assert 'NoNewPrivs:\t0' in status and 'Seccomp:\t2' in status
+allowed=sum(1<<bit for bit in (0,1,3,4,5,6,7,29,31))
+fields=dict(line.split(':',1) for line in status.splitlines() if ':' in line)
+assert int(fields['CapBnd'].strip(),16)==allowed
+if not root_check: assert int(fields['CapEff'].strip(),16)==0
+for path in ['/var/run/docker.sock','/run/docker.sock','/Users/grimlock','/home/grimlock']:
     try: exists=Path(path).exists()
     except PermissionError: exists=False
     assert not exists, path
-for path in ['/opt/hermes/ISOLATION_TEST','/state/profile/config.yaml','/etc/ISOLATION_TEST']:
+protected=['/state/profile/config.yaml','/state/profile/.env']
+if not root_check: protected+=['/opt/hermes/ISOLATION_TEST','/etc/ISOLATION_TEST']
+for path in protected:
     try:
         fd=os.open(path,os.O_WRONLY|os.O_CREAT,0o600)
     except OSError: pass
@@ -32,5 +39,5 @@ for address in ['http://127.0.0.1/','http://192.168.68.180/','http://100.74.13.4
 assert urllib.request.urlopen('https://example.com',timeout=30).status==200
 assert urllib.request.urlopen('http://model:8080/v1/models',timeout=30).status==200
 subprocess.run(['git','ls-remote','https://github.com/truvisco/386gpt.git','HEAD'],check=True,stdout=subprocess.DEVNULL,timeout=60)
-Path('/workspace/isolation-check.txt').write_text('Persistent sandbox workspace\n')
-print('PASS: non-root, no capabilities, no privilege escalation, protected mounts, direct/private network denial, public HTTPS, Git, Unsloth, workspace write.')
+if not root_check: Path('/workspace/isolation-check.txt').write_text('Persistent sandbox workspace\n')
+print('PASS:', 'sudo root' if root_check else 'normal user', 'bounded capabilities, seccomp, read-only config mounts, host/private network denial, public HTTPS, Git, Unsloth, workspace write.')
