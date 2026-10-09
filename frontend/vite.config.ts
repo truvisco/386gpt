@@ -7,9 +7,13 @@ import { cloudflare } from "@cloudflare/vite-plugin";
 export default defineConfig({
   plugins: [react(), cloudflare()],
   server: {
+    host: '127.0.0.1',
+    port: 21350,
+    strictPort: true,
+    allowedHosts: ['386gpt.dev14.portnumber53.com'],
     proxy: {
-      '/api': 'http://localhost:8080',
-      '/ws': { target: 'ws://localhost:8080', ws: true },
+      '/api': 'http://127.0.0.1:21351',
+      '/ws': { target: 'ws://127.0.0.1:21351', ws: true },
     },
   },
 })

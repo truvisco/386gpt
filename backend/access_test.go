@@ -10,6 +10,24 @@ import (
 	"time"
 )
 
+func TestDevelopmentOrigins(t *testing.T) {
+	t.Setenv("AUTH_MODE", "development")
+	for _, origin := range []string{"https://386gpt.dev14.portnumber53.com", "http://localhost:21350", "http://127.0.0.1:21352"} {
+		if !allowedOrigin(origin) {
+			t.Errorf("development origin rejected: %s", origin)
+		}
+	}
+	for _, origin := range []string{"https://other.dev14.portnumber53.com", "https://386gpt.dev14.portnumber53.com.evil.example", "http://386gpt.dev14.portnumber53.com"} {
+		if allowedOrigin(origin) {
+			t.Errorf("untrusted origin accepted: %s", origin)
+		}
+	}
+	t.Setenv("AUTH_MODE", "production")
+	if allowedOrigin("https://386gpt.dev14.portnumber53.com") {
+		t.Fatal("development origin accepted in production")
+	}
+}
+
 func TestAccessAuthentication(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	a := &accessVerifier{issuer: "https://test.cloudflareaccess.com", audience: "app", email: "mauriciootta@gmail.com", service: "ci.access", keys: map[string]*rsa.PublicKey{"test": &key.PublicKey}, fetched: time.Now()}
@@ -60,19 +78,19 @@ func TestAccessAuthentication(t *testing.T) {
 }
 func TestDevelopmentCannotBindPublicly(t *testing.T) {
 	t.Setenv("AUTH_MODE", "development")
-	for _, address := range []string{":8080", "0.0.0.0:8080", "192.168.1.1:8080"} {
+	for _, address := range []string{":21351", "0.0.0.0:21351", "192.168.1.1:21351"} {
 		if _, e := authentication(address, http.NotFoundHandler()); e == nil {
 			t.Fatal("public bypass", address)
 		}
 	}
-	if _, e := authentication("127.0.0.1:8080", http.NotFoundHandler()); e != nil {
+	if _, e := authentication("127.0.0.1:21351", http.NotFoundHandler()); e != nil {
 		t.Fatal(e)
 	}
 }
 func TestAuthFailsClosed(t *testing.T) {
 	t.Setenv("AUTH_MODE", "")
 	t.Setenv("ACCESS_ISSUER", "")
-	if _, e := authentication("127.0.0.1:8080", http.NotFoundHandler()); e == nil {
+	if _, e := authentication("127.0.0.1:21351", http.NotFoundHandler()); e == nil {
 		t.Fatal("missing config accepted")
 	}
 }

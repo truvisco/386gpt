@@ -8,6 +8,7 @@
 	"main": "worker/index.ts",
 	"compatibility_date": "2026-09-11",
 	"workers_dev": false,
+	"dev": { "ip": "127.0.0.1", "port": 21352 },
 	"routes": [
 		{
 			"pattern": "386gpt.truvis.co",

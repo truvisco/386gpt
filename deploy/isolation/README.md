@@ -121,7 +121,7 @@ For book14, put the supplied client JSON at
 `~/.config/386gpt-isolation`, `~/.hermes/386gpt.yaml`, and
 `--url http://127.0.0.1:8650`, then reinstall the existing local supervisor. Air uses
 `deploy/development/start-api.sh`, enables Google login, and uses the registered
-`http://localhost:5173/api/callback/google/oauth` callback. Both local API and
+`https://386gpt.dev14.portnumber53.com/api/callback/google/oauth` callback. Both local API and
 WebSocket requests go through Vite's same-origin proxy. Docker Desktop must be
 running. The normal local development account is now the signed-in Google account.
 

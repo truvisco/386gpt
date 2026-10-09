@@ -203,7 +203,9 @@ func allowedOrigin(origin string) bool {
 		return true
 	}
 	if os.Getenv("AUTH_MODE") == "development" {
-		return origin == "http://localhost:5173" || origin == "http://127.0.0.1:5173" || origin == "http://127.0.0.1:15173"
+		return origin == "https://386gpt.dev14.portnumber53.com" ||
+			origin == "http://localhost:21350" || origin == "http://127.0.0.1:21350" ||
+			origin == "http://localhost:21352" || origin == "http://127.0.0.1:21352"
 	}
 	return false
 }

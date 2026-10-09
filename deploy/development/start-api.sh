@@ -1,9 +1,9 @@
 #!/bin/sh
 set -eu
-export ADDRESS=${ADDRESS:-127.0.0.1:8080}
-export PUBLIC_ORIGIN=${PUBLIC_ORIGIN:-http://localhost:5173}
+export ADDRESS=${ADDRESS:-127.0.0.1:21351}
+export PUBLIC_ORIGIN=${PUBLIC_ORIGIN:-https://386gpt.dev14.portnumber53.com}
 export GOOGLE_OAUTH_CLIENT_FILE=${GOOGLE_OAUTH_CLIENT_FILE:-$HOME/.config/386gpt/google-oauth.json}
-# This only permits loopback origins. Google OAuth remains required when its
+# The API binds to loopback behind the development HTTPS proxy. OAuth is required when its
 # configured client file is present; a missing client fails startup.
 export AUTH_MODE=development
 exec "${1:-./.air/tmp/386gpt}"

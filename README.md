@@ -34,13 +34,15 @@ cd frontend
 npm run dev
 ```
 
-Open the Vite URL shown in the terminal. The backend listens on `http://localhost:8080` by default and stores its database at `backend/data/386gpt.db`.
+Open `http://localhost:21350` for Vite. The backend listens on `http://127.0.0.1:21351` by default and stores its database at `backend/data/386gpt.db`.
+
+Wrangler local development uses `http://127.0.0.1:21352` (`npx wrangler dev` in `frontend`). The development HTTPS proxy serves `https://386gpt.dev14.portnumber53.com`. Air defaults `PUBLIC_ORIGIN` to this origin; register `https://386gpt.dev14.portnumber53.com/api/callback/google/oauth` in Google OAuth and include it in `~/.config/386gpt/google-oauth.json`. For direct localhost login, override `PUBLIC_ORIGIN=http://localhost:21350` and register its `/api/callback/google/oauth` URI too.
 
 ## Configuration
 
 Backend environment variables:
 
-- `ADDRESS`: listen address, default `:8080`
+- `ADDRESS`: listen address, default `127.0.0.1:21351`
 - `DATABASE_PATH`: SQLite file path, default `data/386gpt.db`
 - `HERMES_CONFIG`: 386GPT's Hermes Agent connection file, default `~/.hermes/386gpt.yaml`
 
@@ -57,7 +59,7 @@ The conversation panel shows the real host and gateway profile, skills, tool arg
 To check agent behavior against a running backend and the real Hermes host:
 
 ```sh
-node deploy/smoke/agent-workflow.mjs http://localhost:8080 local
+node deploy/smoke/agent-workflow.mjs http://127.0.0.1:21351 local
 ```
 
 This opt-in test uses SSH to create a disposable Python Git repository on the
@@ -102,7 +104,7 @@ PYTHONPATH="$HOME/.hermes/386gpt-runtime" \
 
 Connection files point to port 8644; port 8643 remains the old API and is rejected for new app submissions. `switch-client.py CONNECTION_FILE` updates the port without replacing credentials. Jenkins reads `/prod/386gpt/hermes-agent-config`; `deploy/jenkins/update-hermes-base-url.sh` updates that connection. Provider credentials stay entirely within Hermes. The profile-preserving local setup also keeps existing model and provider-key changes.
 
-Validation: `go test ./...` and `go vet ./...` in backend; `npm run lint`, `npm run build`, and `npm run test:e2e` in frontend. The browser test expects Vite on port 15173 (override `UI_TEST_ORIGIN`) and mocks the API to exercise recovery and controls. Run `npx playwright install chromium` if the browser is missing.
+Validation: `go test ./...` and `go vet ./...` in backend; `npm run lint`, `npm run build`, and `npm run test:e2e` in frontend. The browser test expects Vite on port 21350 (override `UI_TEST_ORIGIN`) and mocks the API to exercise recovery and controls. Run `npx playwright install chromium` if the browser is missing.
 
 ## Production
 

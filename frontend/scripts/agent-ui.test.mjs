@@ -1,6 +1,6 @@
 import { chromium } from 'playwright'
 import assert from 'node:assert/strict'
-const origin = process.env.UI_TEST_ORIGIN || 'http://127.0.0.1:15173'
+const origin = process.env.UI_TEST_ORIGIN || 'http://127.0.0.1:21350'
 const browser = await chromium.launch({ headless: true })
 try {
   const context = await browser.newContext()

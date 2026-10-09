@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	address := envOr("ADDRESS", "127.0.0.1:8080")
+	address := envOr("ADDRESS", "127.0.0.1:21351")
 	databasePath := envOr("DATABASE_PATH", "data/386gpt.db")
 	hermesPath, err := defaultHermesConfigPath()
 	if err != nil {

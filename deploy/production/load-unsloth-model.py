@@ -2,8 +2,6 @@
 """Restore the 386GPT model after each Unsloth start; never log credentials."""
 
 import json
-import os
-from pathlib import Path
 import time
 import urllib.error
 import urllib.request
@@ -16,9 +14,13 @@ CONTEXT = 66304
 
 
 def main():
-    key = (Path(os.environ["CREDENTIALS_DIRECTORY"]) / "unsloth-api-key").read_text().strip()
+    # Use the same local, same-OS-user authentication as Unsloth's CLI.
+    # External API keys can be revoked independently of boot-time model loading.
+    from unsloth_cli._inference import _studio_token
+
+    key = _studio_token()
     if not key:
-        raise RuntimeError("Unsloth API credential is empty")
+        raise RuntimeError("Could not authenticate as the local Unsloth Studio user")
 
     def request(path, body=None, timeout=10):
         req = urllib.request.Request(
