@@ -114,6 +114,7 @@ func (m *accountManager) start(slot *accountSlot) {
 		app := existing
 		if err == nil && app == nil {
 			app = newServer(store, llm)
+			app.autoHome = !slot.identity.Service
 			app.recoverRuns()
 		}
 		m.mu.Lock()

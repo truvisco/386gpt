@@ -106,6 +106,9 @@ func TestAccountIsolationAndPersistentBinding(t *testing.T) {
 	m.mu.Lock()
 	otherClient := m.slots[other.ID].app.llm
 	ciClient := m.slots[ci.ID].app.llm
+	if !m.slots[other.ID].app.autoHome || !m.slots[owner.ID].app.autoHome || m.slots[ci.ID].app.autoHome {
+		t.Error("automatic home must be enabled only for human accounts")
+	}
 	m.mu.Unlock()
 	for _, c := range []*HermesClient{otherClient, ciClient} {
 		r, _ := c.newRequest(context.Background(), "same-thread", "GET", "/v1/capabilities", nil)

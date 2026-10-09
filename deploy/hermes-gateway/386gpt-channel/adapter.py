@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 
 from aiohttp import web
-from gateway.config import Platform
+from gateway.config import HomeChannel, Platform, persist_home_channel
 from gateway.platforms.api_server import APIServerAdapter, _require_auth
 from gateway.platforms.base import SendResult
 from gateway.platforms.event import MessageEvent
@@ -70,6 +70,22 @@ class ChatAdapter(APIServerAdapter):
         return MessageEvent(text=text, source=self.build_source(chat_id=chat, chat_type="dm", user_id=self.owner, user_name="386GPT owner"),
                             message_id=rid, auto_skill=skills or None)
 
+    def _preset_home(self, event):
+        # The authenticated API opts in only for human accounts. CI service
+        # accounts use disposable threads and must never claim a home.
+        if event.text.lstrip().startswith("/"):
+            return
+        gateway_config = self._session_store.config
+        if self.config.home_channel or gateway_config.get_home_channel(self.platform):
+            return
+        home = HomeChannel(platform=self.platform, chat_id=event.source.chat_id,
+                           name="386GPT home", user_id=self.owner)
+        # Uses the container's writable per-account home-channel.json overlay;
+        # never changes read-only provider credentials or runtime configuration.
+        persist_home_channel(home)
+        self.config.home_channel = home
+        gateway_config.platforms[self.platform] = self.config
+
     def _public(self, run):
         return {k: v for k, v in run.items() if k not in {"chat", "fingerprint", "messages", "approval_session"}}
 
@@ -119,6 +135,8 @@ class ChatAdapter(APIServerAdapter):
                "output":"", "messages":{}, "approval":None, "approval_session":self._event_session_key(event)}
         self._save(run)
         try:
+            if body.get("auto_home") is True:
+                self._preset_home(event)
             await self.handle_message(event)
             if not event._gateway_accepted:
                 raise RuntimeError("Gateway did not admit this message")

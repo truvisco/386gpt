@@ -140,7 +140,7 @@ func (s *Server) submit(ctx context.Context, thread, id, input string, skills []
 	if err != nil {
 		return AgentRun{}, err
 	}
-	body, _ := json.Marshal(map[string]any{"input": input, "skills": skills})
+	body, _ := json.Marshal(map[string]any{"input": input, "skills": skills, "auto_home": s.autoHome})
 	r := AgentRun{ID: id, ThreadID: thread, RuntimeID: t.RuntimeID, SessionID: session, Input: input, Skills: skills, Status: "submitting", CreatedAt: nowUTC(), Request: string(body)}
 	r.UpdatedAt = r.CreatedAt
 	r, created, err := s.store.reserveRun(r)

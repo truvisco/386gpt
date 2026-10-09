@@ -9,6 +9,7 @@ import asyncio
 import importlib.util
 import json
 import unittest
+from unittest.mock import patch
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 from gateway.config import PlatformConfig, GatewayConfig
@@ -34,9 +35,61 @@ class ChannelTest(unittest.IsolatedAsyncioTestCase):
         self.headers={'Authorization':'Bearer '+os.environ['API_SERVER_KEY'],'X-Hermes-Session-Key':'owner:thread:fixture','Idempotency-Key':'request-fixture'}
 
     async def asyncTearDown(self):
+        for _ in range(100):
+            if not self.adapter.records.execute("SELECT 1 FROM deliveries WHERE json_extract(snapshot, '$.status') IN ('queued','running','stopping')").fetchone():
+                break
+            await asyncio.sleep(.01)
         await self.client.close()
         self.adapter.records.execute('DELETE FROM deliveries'); self.adapter.records.commit(); self.adapter.records.close()
         self.adapter._close_cached_session_dbs()
+
+    async def test_first_regular_conversation_presets_home_once(self):
+        with patch.object(module, 'persist_home_channel') as persist:
+            self.adapter._preset_home(self.adapter._event('command-chat', '/status', 'command'))
+            persist.assert_not_called()
+            self.adapter._preset_home(self.adapter._event('first-chat', 'Hello', 'first'))
+            self.adapter._preset_home(self.adapter._event('second-chat', 'Hello again', 'second'))
+            persist.assert_called_once()
+            saved = persist.call_args.args[0]
+            self.assertEqual(saved.chat_id, 'first-chat')
+            self.assertEqual(saved.user_id, self.adapter.owner)
+            self.assertEqual(self.adapter._session_store.config.get_home_channel(self.adapter.platform), saved)
+            # A persisted or explicitly chosen home is never replaced.
+            self.adapter.config.home_channel = module.HomeChannel(self.adapter.platform, 'chosen', 'Chosen')
+            self.adapter._preset_home(self.adapter._event('third-chat', 'Hello', 'third'))
+            persist.assert_called_once()
+
+    async def test_preset_survives_config_reload(self):
+        from gateway.config import load_gateway_config
+        config_path = Path(home.name) / 'config.yaml'
+        previous = config_path.read_bytes() if config_path.exists() else None
+        try:
+            self.adapter._preset_home(self.adapter._event('saved-chat', 'Hello', 'saved'))
+            reloaded = load_gateway_config()
+            self.assertEqual(reloaded.get_home_channel(self.adapter.platform).chat_id, 'saved-chat')
+            self.adapter.config.home_channel = None
+            self.adapter._session_store.config = reloaded
+            with patch.object(module, 'persist_home_channel') as persist:
+                self.adapter._preset_home(self.adapter._event('later-chat', 'Hello', 'later'))
+                persist.assert_not_called()
+        finally:
+            if previous is None:
+                config_path.unlink(missing_ok=True)
+            else:
+                config_path.write_bytes(previous)
+
+    async def test_service_messages_do_not_preset_home(self):
+        with patch.object(module, 'persist_home_channel') as persist:
+            response = await self.client.post('/v1/runs', json={'input':'Hello', 'auto_home':False}, headers=self.headers)
+            self.assertEqual(response.status, 202)
+            persist.assert_not_called()
+
+    async def test_authenticated_message_presets_home_before_dispatch(self):
+        with patch.object(module, 'persist_home_channel') as persist:
+            response = await self.client.post('/v1/runs', json={'input':'Hello', 'auto_home':True}, headers=self.headers)
+            self.assertEqual(response.status, 202)
+            persist.assert_called_once()
+            self.assertEqual(persist.call_args.args[0].chat_id, 'fixture')
 
     async def test_gateway_dispatch_idempotency_and_ownership(self):
         response = await self.client.post('/v1/runs',json={'input':'/status'},headers=self.headers)

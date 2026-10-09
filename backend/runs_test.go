@@ -113,6 +113,9 @@ func TestRunLostAcceptanceAndEvidence(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Error(err)
 			}
+			if body["auto_home"] != true {
+				t.Error("human-account home preference missing from retry payload")
+			}
 			if _, overridden := body["instructions"]; overridden {
 				t.Error("client must not override gateway profile instructions")
 			}
@@ -152,6 +155,7 @@ func TestRunLostAcceptanceAndEvidence(t *testing.T) {
 	defer store.Close()
 	client := &HermesClient{baseURL: upstream.URL, apiKey: "test-secret", sessionKey: "owner", httpClient: upstream.Client()}
 	app := newServer(store, client)
+	app.autoHome = true
 	defer app.close()
 	thread, _ := store.CreateThread("test")
 	run, err := app.submit(context.Background(), thread.ID, "request-live", "hello", nil)

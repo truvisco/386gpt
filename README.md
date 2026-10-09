@@ -54,6 +54,8 @@ Frontend environment variables:
 
 The transport retains the app's durable request/status interface, but `/v1/runs` on port 8644 is a messaging delivery receipt. It never invokes the standalone API agent path. Native commands such as `/status`, `/context`, `/new`, `/stop`, and `/sethome` go to Hermes. Updates queue through the normal messaging guards, and approval choices resolve Hermes's pending approval. Replies and edits are persisted by the channel; disconnecting the browser does not cancel a message. Interrupted deliveries are never automatically re-executed after a gateway restart.
 
+Chat386 automatically saves the first conversation receiving a regular (non-command) message as the home channel for each human account, unless a home is already configured. The setting persists with that account; `/sethome` can change it. CI service accounts are excluded so disposable smoke-test threads never become home channels. Existing accounts without a home select one on their next regular message.
+
 The conversation panel shows the real host and gateway profile, skills, tool arguments/results, approvals, and stop/update controls. Agent completion is distinct from successful tool execution. Conversation URLs use `/conversations/<id>`. Existing app transcripts remain visible; switching from the former API creates a native gateway session for each conversation rather than importing a different profile's private history.
 
 To check agent behavior against a running backend and the real Hermes host:

@@ -11,14 +11,15 @@ import (
 )
 
 type Server struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	runMu   sync.Mutex
-	runWG   sync.WaitGroup
-	workers map[string]bool
-	store   *Store
-	hub     *Hub
-	llm     *HermesClient
+	autoHome bool
+	ctx      context.Context
+	cancel   context.CancelFunc
+	runMu    sync.Mutex
+	runWG    sync.WaitGroup
+	workers  map[string]bool
+	store    *Store
+	hub      *Hub
+	llm      *HermesClient
 }
 
 func newServer(store *Store, llm *HermesClient) *Server {
