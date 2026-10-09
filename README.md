@@ -110,7 +110,7 @@ Validation: `go test ./...` and `go vet ./...` in backend; `npm run lint`, `npm 
 
 ## Production
 
-The `master` branch deploys through the `386GPT` Jenkins multibranch job. Jenkins reads the Hermes Agent connection file from `/prod/386gpt/hermes-agent-config` in its authenticated local etcd instance, builds and verifies the application, and installs an atomic backend release on `web1`. The API-server bearer credential remains in etcd and in the root-owned runtime file; it is never shipped to the browser.
+The `master` branch deploys through the `386GPT` Jenkins multibranch job. Before deploying the API, Jenkins rebuilds and tests the Hermes runtime on `crash`, then reconciles the owner and existing account stacks without replacing their state volumes or workspaces. Its SSH identity for `crash` needs Docker access and passwordless sudo for the runtime installer. Jenkins reads the Hermes Agent connection file from `/prod/386gpt/hermes-agent-config` in its authenticated local etcd instance, builds and verifies the application, and installs an atomic backend release on `web1`. The API-server bearer credential remains in etcd and in the root-owned runtime file; it is never shipped to the browser.
 
 The production frontend is deployed as a Cloudflare Worker with static assets at `https://386gpt.truvis.co`. The production API is `https://api-386gpt.truvis.co`; it runs as the `386gpt.service` systemd unit on `127.0.0.1:20386`, with nginx and Cloudflare in front. SQLite data is retained outside individual releases at `/var/www/vhosts/api-386gpt.truvis.co/shared/data/386gpt.db`.
 

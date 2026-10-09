@@ -10,6 +10,7 @@ pipeline {
     environment {
         APP_NAME = '386gpt'
         BACKEND_HOST = 'web1'
+        HERMES_HOST = 'crash'
         BACKEND_ORIGIN = 'https://api-386gpt.truvis.co'
         FRONTEND_ORIGIN = 'https://386gpt.truvis.co'
         VITE_API_URL = 'https://386gpt.truvis.co'
@@ -72,6 +73,24 @@ pipeline {
                 sh '''
                     set +x
                     sh deploy/jenkins/render-production-config.sh .deploy/release/secrets
+                '''
+            }
+        }
+
+        stage('Deploy Hermes runtime') {
+            when { branch 'master' }
+            steps {
+                sh '''
+                    set -eu
+                    runtime_stage="/tmp/386gpt-runtime-${BUILD_NUMBER}-$(git rev-parse --short=12 HEAD)"
+                    cleanup_runtime() {
+                        ssh -o BatchMode=yes "$HERMES_HOST" "rm -rf '$runtime_stage'" >/dev/null 2>&1 || true
+                    }
+                    trap cleanup_runtime EXIT HUP INT TERM
+                    tar --exclude=__pycache__ --exclude='._*' -czf .deploy/hermes-runtime.tar.gz deploy/isolation deploy/hermes-gateway deploy/production/patch-hermes-runtime.py
+                    ssh -o BatchMode=yes "$HERMES_HOST" "mkdir -m 700 '$runtime_stage'"
+                    scp -q .deploy/hermes-runtime.tar.gz "$HERMES_HOST:$runtime_stage/runtime.tar.gz"
+                    ssh -o BatchMode=yes "$HERMES_HOST" "set -eu; cd '$runtime_stage'; tar -xzf runtime.tar.gz; sh deploy/isolation/update-runtime.sh"
                 '''
             }
         }
