@@ -108,6 +108,14 @@ Connection files point to port 8644; port 8643 remains the old API and is reject
 
 Validation: `go test ./...` and `go vet ./...` in backend; `npm run lint`, `npm run build`, and `npm run test:e2e` in frontend. The browser test expects Vite on port 21350 (override `UI_TEST_ORIGIN`) and mocks the API to exercise recovery and controls. Run `npx playwright install chromium` if the browser is missing.
 
+## GitHub access
+
+Open **Settings → GitHub** in the web app to sign in using GitHub's device code or a personal access token. Settings apply to the selected conversation's workspace (or your default workspace when no conversation is open). Credentials stay in that account's persistent home directory with private file permissions; they are never stored in conversation history or returned to the browser. Disconnect removes the local credential; revoke it in GitHub to invalidate the authorization itself.
+
+The Hermes image includes `gh`. Successful sign-in configures Git's credential helper and rewrites GitHub SSH remotes to HTTPS, so `git clone git@github.com:owner/repo.git` uses the existing HTTP/HTTPS egress proxy. Repository access still depends on the signed-in account and the token's permissions. Agent containers do not receive direct external SSH access.
+
+The browser reconnects interrupted WebSockets automatically. `/ws/` goes directly to the Go API through the development HTTPS proxy; `/ws` remains supported for older clients.
+
 ## Production
 
 The `master` branch deploys through the `386GPT` Jenkins multibranch job. Before deploying the API, Jenkins rebuilds and tests the Hermes runtime on `crash`, then reconciles the owner and existing account stacks without replacing their state volumes or workspaces. Its SSH identity for `crash` needs Docker access and passwordless sudo for the runtime installer. Jenkins reads the Hermes Agent connection file from `/prod/386gpt/hermes-agent-config` in its authenticated local etcd instance, builds and verifies the application, and installs an atomic backend release on `web1`. The API-server bearer credential remains in etcd and in the root-owned runtime file; it is never shipped to the browser.

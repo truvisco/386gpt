@@ -3,6 +3,7 @@ import type { FormEvent, KeyboardEvent } from 'react'
 import './App.css'
 import type { Account } from './AccountGate'
 import { AgentPanel } from './AgentPanel'
+import { GitHubSettings } from './GitHubSettings'
 import { useAgent, isActive, agentRequest } from './useAgent'
 
 type Thread = {
@@ -104,13 +105,13 @@ function App({ account }: { account: Account }) {
   const [agentActivity, setAgentActivity] = useState<string | null>(null)
   const [turbo, setTurbo] = useState(() => window.localStorage.getItem('386gpt-turbo') === 'true')
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const agent = useAgent(activeId)
   const runtime = agent.runtime
   const [selectedSkills, setSelectedSkills] = useState<string[]>([])
   const pendingSubmission = useRef<{ id: string; thread: string; input: string; skills: string[] } | null>(null)
   const socketRef = useRef<WebSocket | null>(null)
-  const socketThreadRef = useRef<string | null>(null)
   const conversationRef = useRef<HTMLElement | null>(null)
   const followLatestRef = useRef(true)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -144,7 +145,6 @@ function App({ account }: { account: Account }) {
     clearTypingAnimations()
     socketRef.current?.close()
     socketRef.current = null
-    socketThreadRef.current = null
     setConnected(false)
     setActiveId(id)
     setMessages([])
@@ -244,37 +244,49 @@ function App({ account }: { account: Account }) {
     }
   }, [animateAssistant, clearTypingAnimations])
 
-  const connectSocket = useCallback((threadId: string) => {
-    const existing = socketRef.current
-    if (socketThreadRef.current === threadId && existing?.readyState === WebSocket.OPEN) {
-      return Promise.resolve(existing)
-    }
-    existing?.close()
-    setConnected(false)
-    const wsBase = API_BASE.replace(/^http/, 'ws')
-    const socket = new WebSocket(`${wsBase}/ws?thread_id=${encodeURIComponent(threadId)}`)
-    socketRef.current = socket
-    socketThreadRef.current = threadId
-    socket.onmessage = (raw) => {
-      if (socketRef.current === socket) applySocketEvent(JSON.parse(raw.data) as SocketEvent)
-    }
-    socket.onclose = () => {
-      if (socketRef.current === socket) setConnected(false)
-    }
-    socket.onerror = () => {
-      if (socketRef.current === socket) setNotice('Realtime uplink unavailable. Is the Go backend running?')
-    }
-    return new Promise<WebSocket>((resolve, reject) => {
+  useEffect(() => {
+    if (!activeId) return
+    let stopped = false, retries = 0
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
+    let connectTimer: ReturnType<typeof setTimeout> | undefined
+    const reconnectNotice = 'Realtime connection interrupted. Reconnecting…'
+    const connect = () => {
+      if (stopped) return
+      const wsBase = API_BASE.replace(/^http/, 'ws')
+      // /ws/ follows the development proxy's direct API route, bypassing Vite.
+      const socket = new WebSocket(`${wsBase}/ws/?thread_id=${encodeURIComponent(activeId)}`)
+      socketRef.current = socket
+      const current = () => !stopped && socketRef.current === socket
+      connectTimer = setTimeout(() => { if (current() && socket.readyState !== WebSocket.OPEN) socket.close() }, 10000)
       socket.onopen = () => {
-        if (socketRef.current === socket) {
-          setConnected(true)
-          setNotice(null)
-        }
-        resolve(socket)
+        if (!current()) return
+        clearTimeout(connectTimer)
+        retries = 0
+        setConnected(true)
+        setNotice(value => value === reconnectNotice ? null : value)
       }
-      socket.addEventListener('error', () => reject(new Error('WebSocket connection failed')), { once: true })
-    })
-  }, [applySocketEvent])
+      socket.onmessage = raw => {
+        if (current()) applySocketEvent(JSON.parse(raw.data) as SocketEvent)
+      }
+      socket.onclose = () => {
+        if (!current()) return
+        clearTimeout(connectTimer)
+        setConnected(false)
+        setNotice(value => value ?? reconnectNotice)
+        retryTimer = setTimeout(connect, Math.min(1000 * 2 ** retries++, 10000))
+      }
+      // Browsers also emit close after an error; keep one retry path.
+      socket.onerror = () => undefined
+    }
+    connect()
+    return () => {
+      stopped = true
+      clearTimeout(retryTimer)
+      clearTimeout(connectTimer)
+      socketRef.current?.close()
+      socketRef.current = null
+    }
+  }, [activeId, applySocketEvent])
 
   const loadThreads = useCallback(async () => {
     try {
@@ -304,7 +316,6 @@ function App({ account }: { account: Account }) {
     if (!activeId) {
       setMessages([])
       socketRef.current?.close()
-      socketThreadRef.current = null
       setConnected(false)
       setLoading(false)
       return
@@ -319,9 +330,8 @@ function App({ account }: { account: Account }) {
       })
       .catch((error) => { if (!cancelled) setNotice(error.message) })
       .finally(() => { if (!cancelled) setLoading(false) })
-    void connectSocket(activeId).catch(() => undefined)
     return () => { cancelled = true }
-  }, [activeId, connectSocket, request])
+  }, [activeId, request])
 
   useLayoutEffect(() => {
     const conversation = conversationRef.current
@@ -473,6 +483,8 @@ function App({ account }: { account: Account }) {
         </nav>
 
         <div className="sidebar-footer">
+          <button className="settings-button" type="button" onClick={() => setSettingsOpen(true)}>Settings</button>
+          {settingsOpen && <GitHubSettings key={activeId ?? "default"} thread={activeId} onClose={() => setSettingsOpen(false)} />}
           <div className="account-summary"><span title={account.email}>{account.email || 'Test account'}</span><button type="button" onClick={async () => { await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST' }); window.location.assign('/') }}>Sign out</button></div>
           <button className={`turbo-button ${turbo ? 'active' : ''}`} type="button" aria-pressed={turbo} onClick={() => setTurbo((current) => !current)}>
             TURBO {turbo ? '×4' : 'OFF'}

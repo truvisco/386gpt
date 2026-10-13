@@ -37,11 +37,19 @@ try {
     }
     await route.fulfill({ json: data })
   })
-  await context.routeWebSocket('**/ws?*', socket => { socket.send(JSON.stringify({ type: 'ready' })) })
+  let sockets = [], connectionCount = 0
+  await context.routeWebSocket('**/ws/?*', socket => { sockets.push(socket); connectionCount++; socket.send(JSON.stringify({ type: 'ready' })) })
   const page = await context.newPage(), errors = []
   page.on('pageerror', e => errors.push(e.message))
   await page.goto(`${origin}/conversations/one`)
   await page.getByText('APPROVAL REQUIRED', { exact: true }).waitFor()
+  await page.getByText('UPLINK ACTIVE', { exact: false }).waitFor()
+  const beforeReconnect = connectionCount
+  sockets.at(-1).close({code:1012, reason:'Backend restarted'})
+  await page.getByText('Realtime connection interrupted. Reconnecting…', {exact:false}).waitFor()
+  await page.getByText('UPLINK ACTIVE', {exact:false}).waitFor()
+  assert.ok(connectionCount > beforeReconnect, 'WebSocket should reconnect after a backend restart')
+  assert.equal(await page.getByText('Realtime connection interrupted. Reconnecting…', {exact:false}).count(), 0)
   await page.getByText('terminal · TOOL FAILED', { exact: true }).click()
   await page.getByText(/Fixture failed/).waitFor()
   await page.reload()

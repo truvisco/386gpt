@@ -17,6 +17,7 @@ from gateway.platforms.api_server import APIServerAdapter, _require_auth
 from gateway.platforms.base import SendResult
 from gateway.platforms.event import MessageEvent
 from hermes_constants import get_hermes_home
+from .github_auth import GitHubAuth
 
 ACTIVE = {"queued", "running", "waiting_for_approval", "stopping"}
 
@@ -26,6 +27,7 @@ class ChatAdapter(APIServerAdapter):
         super().__init__(config)
         self.platform = Platform("chat386")
         self.owner = str(config.extra.get("owner", "386gpt-owner"))
+        self.github = GitHubAuth()
         self.records = sqlite3.connect(Path(get_hermes_home()) / "386gpt-channel.db")
         self.records.execute("CREATE TABLE IF NOT EXISTS deliveries (id TEXT PRIMARY KEY, chat TEXT NOT NULL, fingerprint TEXT NOT NULL, snapshot TEXT NOT NULL)")
         # An accepted message is never silently re-executed after gateway restart.
@@ -37,6 +39,8 @@ class ChatAdapter(APIServerAdapter):
 
     def _http_route_table(self):
         return [
+            ("GET", "/v1/github", self.github_status),
+            ("POST", "/v1/github/{action}", self.github_action),
             ("GET", "/v1/capabilities", self.capabilities),
             ("GET", "/v1/skills", self._handle_skills),
             ("GET", "/api/sessions/{session_id}/messages", self._handle_session_messages),
@@ -45,6 +49,29 @@ class ChatAdapter(APIServerAdapter):
             ("GET", "/v1/runs/{run_id}/events", self.events),
             ("POST", "/v1/runs/{run_id}/{action}", self.control),
         ]
+
+    @_require_auth
+    async def github_status(self, request):
+        return web.json_response(await self.github.status(), headers={"Cache-Control": "no-store"})
+
+    @_require_auth
+    async def github_action(self, request):
+        try:
+            action = request.match_info['action']
+            if action == 'device':
+                result = await self.github.start_device()
+            elif action == 'token':
+                body = await request.json()
+                if not isinstance(body, dict):
+                    raise ValueError('Invalid token request')
+                result = await self.github.token(body.get('token'))
+            elif action == 'disconnect':
+                result = await self.github.disconnect()
+            else:
+                raise web.HTTPNotFound()
+            return web.json_response(result, headers={"Cache-Control": "no-store"})
+        except (ValueError, OSError, asyncio.TimeoutError):
+            return web.json_response({"error": "GitHub sign-in failed. Check the token permissions or retry device sign-in."}, status=400, headers={"Cache-Control": "no-store"})
 
     def _save(self, run):
         self.records.execute("INSERT INTO deliveries VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET snapshot=excluded.snapshot",

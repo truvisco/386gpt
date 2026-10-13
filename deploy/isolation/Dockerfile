@@ -20,7 +20,7 @@ RUN groupadd --gid 10001 hermes && useradd --uid 10001 --gid 10001 --home-dir /s
 RUN apt-get update && apt-get install -y --no-install-recommends \
       sudo bash-completion cmake ninja-build pkg-config \
       jq file less nano vim-tiny tree unzip zip xz-utils \
-      wget rsync openssh-client lsof netcat-openbsd sqlite3 \
+      wget rsync openssh-client gh lsof netcat-openbsd sqlite3 \
       libssl-dev libffi-dev \
     && rm -rf /var/lib/apt/lists/* \
     && printf '%s\n' \

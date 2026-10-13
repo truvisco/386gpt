@@ -11,6 +11,9 @@ docker build -t "$boundary_candidate" -f deploy/isolation/Dockerfile.proxy .
 docker run --rm --network none --entrypoint /opt/venv/bin/python \
     -v "$root/deploy/hermes-gateway:/tests:ro" \
     "$hermes_candidate" /tests/test_channel.py
+docker run --rm --network none --entrypoint /opt/venv/bin/python \
+    -v "$root/deploy/hermes-gateway:/tests:ro" \
+    "$hermes_candidate" /tests/test_github_auth.py
 docker tag "$hermes_candidate" 386gpt-hermes:isolated
 docker tag "$boundary_candidate" 386gpt-boundary:isolated
 

@@ -72,7 +72,7 @@ func TestAccountIsolationAndPersistentBinding(t *testing.T) {
 		if strings.Contains(accountRequest(m, a, "GET", "/api/threads", "").Body.String(), old.ID) {
 			t.Fatal("legacy history leaked")
 		}
-		for _, path := range []string{"/api/threads/" + old.ID + "/messages", "/api/threads/" + old.ID + "/runs", "/api/threads/" + old.ID + "/activity", "/api/runtime?thread_id=" + old.ID, "/ws?thread_id=" + old.ID} {
+		for _, path := range []string{"/api/threads/" + old.ID + "/messages", "/api/threads/" + old.ID + "/runs", "/api/threads/" + old.ID + "/activity", "/api/runtime?thread_id=" + old.ID, "/ws?thread_id=" + old.ID, "/ws/?thread_id=" + old.ID, "/api/settings/github?thread_id=" + old.ID} {
 			if w := accountRequest(m, a, "GET", path, ""); w.Code != 404 {
 				t.Errorf("cross-account read %s returned %d", path, w.Code)
 			}

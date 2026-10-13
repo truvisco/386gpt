@@ -146,3 +146,21 @@ button { border: 0; }
 .account-summary span { flex: 1; min-width: 0; overflow: hidden; color: var(--muted); font-size: 12px !important; text-overflow: ellipsis; white-space: nowrap; }
 .account-summary button { flex-shrink: 0; padding: 6px 8px; color: var(--muted); background: transparent; border: 1px solid var(--line); font-size: 10px !important; white-space: nowrap; }
 .account-summary button:hover { color: var(--cyan); border-color: var(--cyan-dim); }
+
+.settings-overlay { position: fixed; inset: 0; z-index: 100; background: #000a; display: grid; place-items: center; padding: 1rem; }
+.github-settings { width: min(36rem, 100%); max-height: 90vh; overflow-y: auto; padding: 1.5rem; background: #080e24; color: #eee; border: 2px solid #aaa; box-shadow: 8px 8px #000; }
+.github-settings header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.github-settings h2 { font-size: 1.2rem; }
+.github-settings button { margin: .5rem 0; padding: .4rem .7rem; }
+.github-settings form { border-top: 1px solid #777; margin-top: 1rem; padding-top: 1rem; }
+.github-settings label, .github-settings input { display: block; width: 100%; }
+.github-settings input { margin: .5rem 0; padding: .5rem; }
+.github-settings a { color: #8ff; }
+.github-settings [role=alert] { color: #ffb4a5; }
+.device-code { letter-spacing: .15em; color: #ffeb80; }
+.github-settings button, .settings-button { color: #f5f7ff; background: #173d6a; border: 2px solid #96b8de; font: inherit; cursor: pointer; padding: .4rem .7rem; }
+.github-settings button:hover, .settings-button:hover { color: #fff; background: #245a91; }
+.github-settings button:disabled { color: #bcc5d2; background: #303c50; border-color: #64748b; cursor: not-allowed; opacity: 1; }
+.github-settings button:focus-visible, .settings-button:focus-visible, .github-settings input:focus-visible { outline: 2px solid #ffeb80; outline-offset: 3px; }
+.github-settings input { color: #f5f7ff; background: #101c32; border: 1px solid #96b8de; }
+.github-settings input::placeholder { color: #aebed5; opacity: 1; }

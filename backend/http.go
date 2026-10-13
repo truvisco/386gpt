@@ -31,6 +31,8 @@ func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /api/runtime", s.runtime)
+	mux.HandleFunc("GET /api/settings/github", s.githubSettings)
+	mux.HandleFunc("POST /api/settings/github/{action}", s.githubSettings)
 	mux.HandleFunc("GET /api/skills", s.skills)
 	mux.HandleFunc("GET /api/threads/{id}/activity", s.activity)
 	mux.HandleFunc("GET /api/threads/{id}/runs", s.listRuns)
@@ -44,6 +46,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/threads/{id}", s.deleteThread)
 	mux.HandleFunc("GET /api/threads/{id}/messages", s.listMessages)
 	mux.HandleFunc("GET /ws", s.serveWebSocket)
+	mux.HandleFunc("GET /ws/{$}", s.serveWebSocket)
 	return cors(requestLog(mux))
 }
 

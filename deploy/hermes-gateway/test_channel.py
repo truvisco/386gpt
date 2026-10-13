@@ -9,14 +9,15 @@ import asyncio
 import importlib.util
 import json
 import unittest
-from unittest.mock import patch
+import sys
+from unittest.mock import AsyncMock, patch
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 from gateway.config import PlatformConfig, GatewayConfig
 from gateway.platform_registry import PlatformEntry, platform_registry
 from gateway.session import SessionStore
-spec = importlib.util.spec_from_file_location('channel', Path(__file__).parent/'386gpt-channel/adapter.py')
-module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+spec = importlib.util.spec_from_file_location('channel', Path(__file__).parent/'386gpt-channel/adapter.py', submodule_search_locations=[str(Path(__file__).parent/'386gpt-channel')])
+module = importlib.util.module_from_spec(spec); sys.modules[spec.name] = module; spec.loader.exec_module(module)
 platform_registry.register(PlatformEntry(name='chat386',label='386GPT',adapter_factory=module.ChatAdapter,check_fn=lambda:True))
 
 class ChannelTest(unittest.IsolatedAsyncioTestCase):
@@ -83,6 +84,19 @@ class ChannelTest(unittest.IsolatedAsyncioTestCase):
             response = await self.client.post('/v1/runs', json={'input':'Hello', 'auto_home':False}, headers=self.headers)
             self.assertEqual(response.status, 202)
             persist.assert_not_called()
+
+    async def test_github_settings_require_account_gateway_credentials(self):
+        with patch.object(self.adapter.github, 'token', new_callable=AsyncMock) as login:
+            login.return_value = {'state': 'connected', 'login': 'fixture'}
+            response = await self.client.post('/v1/github/token', json={'token':'private_fixture'})
+            self.assertEqual(response.status, 401)
+            login.assert_not_awaited()
+            response = await self.client.post('/v1/github/token', json={'token':'private_fixture'}, headers=self.headers)
+            self.assertEqual(response.status, 200)
+            self.assertNotIn('private_fixture', await response.text())
+            login.assert_awaited_once_with('private_fixture')
+            response = await self.client.post('/v1/github/token', json=['private_fixture'], headers=self.headers)
+            self.assertEqual(response.status, 400)
 
     async def test_authenticated_message_presets_home_before_dispatch(self):
         with patch.object(module, 'persist_home_channel') as persist:

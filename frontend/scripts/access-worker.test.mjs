@@ -16,5 +16,8 @@ try {
  assert.equal(forwarded.headers.get('Upgrade'),'websocket')
  assert.equal(forwarded.headers.get('Origin'),'https://386gpt.truvis.co')
  assert.equal(forwarded.redirect,'manual')
+ await worker.fetch(new Request('https://386gpt.truvis.co/ws/?thread_id=abc',{headers:{Upgrade:'websocket',Origin:'https://386gpt.truvis.co'}}),env)
+ assert.equal(forwarded.url,'https://api-386gpt.truvis.co/ws/?thread_id=abc')
+ assert.equal(forwarded.headers.get('Upgrade'),'websocket')
  console.log('PASS Worker: public login assets, fixed API origin, session cookie forwarding, identity-header stripping, WebSocket upgrade.')
 } finally {globalThis.fetch=originalFetch}

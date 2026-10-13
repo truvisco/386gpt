@@ -4,7 +4,7 @@ export default {
   async fetch(request: Request, env: Env & { ASSETS: Fetcher }) {
     if (import.meta.env.DEV) return env.ASSETS.fetch(request)
     const url = new URL(request.url)
-    if (url.pathname.startsWith('/api/') || url.pathname === '/ws' || url.pathname === '/health') {
+    if (url.pathname.startsWith('/api/') || (url.pathname === '/ws' || url.pathname === '/ws/') || url.pathname === '/health') {
       url.protocol = 'https:'
       url.host = 'api-386gpt.truvis.co'
       const headers = new Headers(request.headers)
