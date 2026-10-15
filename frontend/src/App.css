@@ -90,7 +90,8 @@ button { border: 0; }
 .copy-button { display: flex; align-items: center; gap: 6px; margin: 15px 0 0 40px; padding: 3px 5px; color: #555; background: transparent; font-size: 10px !important; }
 .copy-button:hover { color: var(--cyan); }
 .copy-button svg { width: 12px; height: 12px; }
-.stream-cursor { margin-left: 3px; color: var(--cyan); animation: blink .7s steps(1) infinite; }
+.chat-cursor { margin-left: 4px; vertical-align: -2px; }
+.chat-prompt { padding: 22px 4px; color: var(--cyan); }
 
 .composer-wrap { flex: 0 0 auto; padding: 0 24px 17px; background: linear-gradient(transparent, #050505 25%); }
 .composer { display: flex; align-items: flex-end; width: min(850px, 100%); min-height: 62px; margin: 0 auto; padding: 9px 10px 9px 16px; background: #101010; border: 1px solid #444; box-shadow: 5px 5px 0 #000 !important; }
@@ -164,3 +165,41 @@ button { border: 0; }
 .github-settings button:focus-visible, .settings-button:focus-visible, .github-settings input:focus-visible { outline: 2px solid #ffeb80; outline-offset: 3px; }
 .github-settings input { color: #f5f7ff; background: #101c32; border: 1px solid #96b8de; }
 .github-settings input::placeholder { color: #aebed5; opacity: 1; }
+
+/* Activity stays reachable while the conversation scrolls. */
+.activity-dock { position: relative; flex: 0 0 auto; min-width: 0; }
+.activity-details { max-height: min(35dvh, 320px); overflow-y: auto; background: var(--panel); border-top: 1px solid var(--cyan-dim); box-shadow: 0 -8px 24px #0008; }
+.activity-details .agent-panel { border-bottom: 0; }
+.chat-statusbar { display: flex; align-items: center; gap: 14px; min-height: 40px; padding: 0 18px env(safe-area-inset-bottom); color: #aaa; background: #111; border-top: 1px solid var(--line); font-size: 11px !important; }
+.activity-toggle { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; min-height: 40px; padding: 8px 0; color: inherit; background: transparent; text-align: left; }
+.activity-toggle .status-dot { flex-shrink: 0; margin: 0; background: var(--muted); }
+.activity-label { color: var(--muted); font-size: 10px !important; letter-spacing: 1px; }
+.activity-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-toggle:hover, .busy .activity-status { color: var(--cyan); }
+.busy .activity-toggle .status-dot { background: var(--cyan); animation: blink 1.1s steps(1) infinite; }
+.has-error .activity-status { color: var(--red); }
+.status-connection { flex-shrink: 0; color: var(--muted); font-size: 10px !important; }
+.status-stop { padding: 5px 9px; color: var(--yellow); background: transparent; border: 1px solid #666633; }
+.status-stop:hover { background: #33331a; }
+.activity-toggle:focus-visible, .status-stop:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .chat-statusbar { gap: 10px; padding-inline: 12px; }
+  .activity-label, .status-connection { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .busy .activity-toggle .status-dot { animation: none; }
+}
+
+.terminal-input { position: relative; flex: 1; min-width: 0; overflow: hidden; }
+.composer .terminal-input textarea { display: block; width: 100%; }
+.caret-mirror { position: absolute; top: 0; left: 0; visibility: hidden; pointer-events: none; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; border: 0; }
+.composer textarea.block-caret-active { caret-color: transparent; }
+.input-block-caret { position: absolute; pointer-events: none; background: var(--cyan); opacity: .75; animation: blink 1.1s steps(1) infinite; }
+.input-block-caret[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .input-block-caret { animation: none; }
+}
+@media (forced-colors: active) {
+  .composer textarea.block-caret-active { caret-color: auto; }
+  .input-block-caret { display: none; }
+}

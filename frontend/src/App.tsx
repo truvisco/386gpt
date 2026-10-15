@@ -3,6 +3,7 @@ import type { FormEvent, KeyboardEvent } from 'react'
 import './App.css'
 import type { Account } from './AccountGate'
 import { AgentPanel } from './AgentPanel'
+import { TerminalTextarea } from './TerminalTextarea'
 import { GitHubSettings } from './GitHubSettings'
 import { useAgent, isActive, agentRequest } from './useAgent'
 
@@ -106,6 +107,7 @@ function App({ account }: { account: Account }) {
   const [turbo, setTurbo] = useState(() => window.localStorage.getItem('386gpt-turbo') === 'true')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [activityOpen, setActivityOpen] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const agent = useAgent(activeId)
   const runtime = agent.runtime
@@ -154,6 +156,7 @@ function App({ account }: { account: Account }) {
     setNotice(null)
     setAgentActivity(null)
     setSelectedSkills([])
+    setActivityOpen(false)
     pendingSubmission.current = null
   }, [clearTypingAnimations])
 
@@ -444,7 +447,20 @@ function App({ account }: { account: Account }) {
     }
   }
 
+  useEffect(() => {
+    if (agent.run?.status === 'waiting_for_approval') setActivityOpen(true)
+  }, [agent.run?.id, agent.run?.status])
+
   const activeThread = threads.find((thread) => thread.id === activeId)
+  const activeRun = isActive(agent.run)
+  const latestTool = [...agent.events].reverse().find(event => event.runId === agent.run?.id && (event.kind === 'tool.call' || event.kind === 'tool.result'))
+  const activityError = agent.error || agent.run?.error || runtime.error
+  const activityStatus = activityError ? 'ATTENTION REQUIRED'
+    : agent.run?.status === 'waiting_for_approval' ? 'APPROVAL REQUIRED'
+    : agent.run?.status === 'stopping' ? 'STOPPING'
+    : activeRun && latestTool ? `${latestTool.kind === 'tool.call' ? 'RUNNING' : 'FINISHED'}: ${String(latestTool.data.tool).replaceAll('_', ' ').toUpperCase()}`
+    : agentActivity ?? (agent.run ? agent.run.status.toUpperCase().replaceAll('_', ' ') : loading ? 'LOADING' : 'READY')
+
 
   return (
     <div className="app-shell">
@@ -508,13 +524,12 @@ function App({ account }: { account: Account }) {
           const conversation = event.currentTarget
           followLatestRef.current = conversation.scrollHeight - conversation.clientHeight - conversation.scrollTop <= 64
         }}>
-          <AgentPanel run={agent.run} events={agent.events} runtime={runtime} skills={agent.skills} selected={selectedSkills} onSelect={setSelectedSkills} onSkills={() => void agent.loadSkills()} onControl={(action, body) => void controlRun(action, body)} error={agent.error} />
           {notice && <div className="notice"><strong>ERROR:</strong> {notice}</div>}
           {!messages.length && !loading ? (
             <div className="welcome">
               <div className="ascii-logo" aria-label="386 GPT">{` ██████╗  █████╗  ██████╗\n ╚════██╗██╔══██╗██╔════╝\n  █████╔╝╚█████╔╝███████╗\n  ╚═══██╗██╔══██╗██╔═══██╗\n ██████╔╝╚█████╔╝╚██████╔╝\n ╚═════╝  ╚════╝  ╚═════╝`}</div>
               <p className="welcome-kicker">[ GENERATIVE PRE-TRAINED TERMINAL ]</p>
-              <h1>WHAT CAN I HELP YOU BUILD?</h1>
+              <h1>WHAT CAN I HELP YOU BUILD? <span className="terminal-cursor" aria-hidden="true" /></h1>
               <p className="welcome-copy">Your local conversation archive is ready. Ask a question, explore an idea, or ship some code.</p>
               <div className="quick-grid">
                 {quickPrompts.map(([label, prompt]) => (
@@ -528,16 +543,17 @@ function App({ account }: { account: Account }) {
             </div>
           ) : (
             <div className="message-list">
-              {messages.map((message) => (
+              {messages.map((message, index) => (
                 <article key={message.id} className={`message ${message.role}`}>
                   <div className="message-label">{message.role === 'user' ? 'YOU' : '386GPT'} <span>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></div>
                   <div className="message-body">
                     {message.role === 'assistant' && <div className="assistant-glyph"><Icon name="spark" /></div>}
-                    <p>{message.content}{message.streaming && <span className="stream-cursor">█</span>}</p>
+                    <p>{message.content}{message.role === 'assistant' && index === messages.length - 1 && <span className="terminal-cursor chat-cursor" aria-hidden="true" />}</p>
                   </div>
                   {!message.streaming && <button className="copy-button" onClick={() => void navigator.clipboard.writeText(message.content)} aria-label="Copy message"><Icon name="copy" /> COPY</button>}
                 </article>
               ))}
+              {(!messages.length || messages[messages.length - 1].role === 'user') && <div className="chat-prompt" aria-hidden="true">&gt; <span className="terminal-cursor" /></div>}
             </div>
           )}
         </section>
@@ -545,11 +561,26 @@ function App({ account }: { account: Account }) {
         <footer className="composer-wrap">
           <form className="composer" onSubmit={submit}>
             <span className="composer-prompt">&gt;</span>
-            <textarea ref={textareaRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKey} placeholder="ENTER MESSAGE..." rows={1} aria-label="Message" />
+            <TerminalTextarea textareaRef={textareaRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKey} placeholder="ENTER MESSAGE..." rows={1} aria-label="Message" />
             <button type="submit" className="send-button" disabled={!draft.trim() || (sending && !isActive(agent.run))} aria-label={isActive(agent.run) ? 'Send update' : 'Send message'}>{isActive(agent.run) ? 'UPDATE' : sending ? '...' : <Icon name="send" />}</button>
           </form>
-          <div className="composer-meta"><span>ENTER TO SEND · SHIFT+ENTER FOR NEW LINE</span><span className={agentActivity ? 'agent-activity' : ''}>{agentActivity ?? 'HERMES SESSION · SQLITE ARCHIVE'}</span></div>
+          <div className="composer-meta"><span>ENTER TO SEND · SHIFT+ENTER FOR NEW LINE</span><span>HERMES SESSION · SQLITE ARCHIVE</span></div>
         </footer>
+        <div className="activity-dock">
+          <div id="activity-details" className="activity-details" hidden={!activityOpen}>
+          <AgentPanel run={agent.run} events={agent.events} runtime={runtime} skills={agent.skills} selected={selectedSkills} onSelect={setSelectedSkills} onSkills={() => void agent.loadSkills()} onControl={(action, body) => void controlRun(action, body)} error={agent.error} />
+          </div>
+          <div className={`chat-statusbar ${activeRun || sending ? 'busy' : ''} ${activityError ? 'has-error' : ''}`}>
+            <button className="activity-toggle" type="button" aria-expanded={activityOpen} aria-controls="activity-details" onClick={() => setActivityOpen(open => !open)}>
+              <span className="status-dot" aria-hidden="true" />
+              <span className="activity-label">ACTIVITY</span>
+              <span className="activity-status" role="status" title={activityStatus}>{activityStatus}</span>
+              <span aria-hidden="true">{activityOpen ? '▾' : '▴'}</span>
+            </button>
+            {activeRun && <button className="status-stop" type="button" onClick={() => void controlRun('stop')}>STOP</button>}
+            <span className="status-connection">{activeId ? connected ? 'UPLINK ACTIVE' : 'RECONNECTING' : 'STANDBY'}</span>
+          </div>
+        </div>
       </main>
     </div>
   )

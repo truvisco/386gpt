@@ -1,5 +1,4 @@
 import type { Activity, Run, Runtime, Skill } from './useAgent'
-import { isActive } from './useAgent'
 
 function display(value: unknown) { return typeof value === 'string' ? value : JSON.stringify(value, null, 2) }
 function resultState(value: unknown) {
@@ -24,7 +23,7 @@ export function AgentPanel({ run, events, runtime, skills, selected, onSelect, o
     <div className="agent-runtime">TOOLS: {runtime.hostname ?? runtime.id ?? 'UNKNOWN'} · {runtime.os ?? ''} · {runtime.healthy === undefined ? 'CONNECTING' : runtime.healthy ? 'CONNECTED' : 'OFFLINE'}{runtime.transport === "messaging_gateway" && <span>GATEWAY PROFILE: {runtime.profile}</span>}{workingDirectory && <span>WORKDIR: {workingDirectory}</span>}</div>
     {error && <div role="alert">{error}</div>}
     {runtime.error && <div role="alert">{runtime.error}</div>}
-    {run && <div className="agent-run-status">{run.status === 'completed' ? 'AGENT FINISHED — inspect tool results below' : run.status.toUpperCase().replaceAll('_', ' ')}{isActive(run) && <button onClick={() => onControl('stop')}>STOP</button>}{run.error && <p role="alert">{run.error}</p>}{run.pendingSteer != null && <pre>Undelivered update: {display(run.pendingSteer)}</pre>}</div>}
+    {run && <div className="agent-run-status">{run.status === 'completed' ? 'AGENT FINISHED — inspect tool results below' : run.status.toUpperCase().replaceAll('_', ' ')}{run.error && <p role="alert">{run.error}</p>}{run.pendingSteer != null && <pre>Undelivered update: {display(run.pendingSteer)}</pre>}</div>}
     {run?.status === 'waiting_for_approval' && run.approval && <div className="agent-approval" role="alert">
       <strong>APPROVAL REQUIRED</strong><pre>{run.approval.command ?? run.approval.description}</pre>
       {run.approval.choices.map(choice => <button key={choice} onClick={() => onControl('approval', { request_id: run.approval?.request_id, choice })}>{choice.toUpperCase().replaceAll('_', ' ')}</button>)}
